@@ -1,0 +1,56 @@
+{
+	"pages": [
+		{ "path": "pages/index/index", "style": { "navigationBarTitleText": "工作台" } },
+		{ "path": "pages/message/list", "style": { "navigationBarTitleText": "消息" } },
+		{ "path": "pages/mine/mine", "style": { "navigationBarTitleText": "我的" } },
+		{ "path": "pages/login/login", "style": { "navigationBarTitleText": "登录", "navigationStyle": "custom" } },
+		{ "path": "pages/login/register", "style": { "navigationBarTitleText": "客户注册" } },
+		{ "path": "pages/product/list", "style": { "navigationBarTitleText": "产品基础信息" } },
+		{ "path": "pages/product/detail", "style": { "navigationBarTitleText": "产品详情" } },
+		{ "path": "pages/product/settings", "style": { "navigationBarTitleText": "价格参数设置" } },
+		{ "path": "pages/quote/list", "style": { "navigationBarTitleText": "报价单列表" } },
+		{ "path": "pages/quote/detail", "style": { "navigationBarTitleText": "报价单详情" } },
+		{ "path": "pages/quote/select", "style": { "navigationBarTitleText": "选择报价产品" } },
+		{ "path": "pages/quote/export", "style": { "navigationBarTitleText": "报价单导出" } },
+		{ "path": "pages/follow/index", "style": { "navigationBarTitleText": "客户跟进" } },
+		{ "path": "pages/follow/customer", "style": { "navigationBarTitleText": "客户跟进详情" } },
+		{ "path": "pages/purchase/list", "style": { "navigationBarTitleText": "采购列表" } },
+		{ "path": "pages/purchase/detail", "style": { "navigationBarTitleText": "采购详情" } },
+		{ "path": "pages/archive/customer", "style": { "navigationBarTitleText": "客户档案" } },
+		{ "path": "pages/archive/customer-detail", "style": { "navigationBarTitleText": "客户详情" } },
+		{ "path": "pages/archive/employee", "style": { "navigationBarTitleText": "员工档案" } },
+		{ "path": "pages/archive/supplier", "style": { "navigationBarTitleText": "供应商档案" } },
+		{ "path": "pages/archive/competitor", "style": { "navigationBarTitleText": "同行档案" } },
+		{ "path": "pages/archive/edit", "style": { "navigationBarTitleText": "编辑档案" } },
+		{ "path": "pages/customer/products", "style": { "navigationBarTitleText": "商品浏览" } },
+		{ "path": "pages/customer/product-detail", "style": { "navigationBarTitleText": "商品详情" } },
+		{ "path": "pages/customer/cart", "style": { "navigationBarTitleText": "申请报价" } },
+		{ "path": "pages/customer/request-detail", "style": { "navigationBarTitleText": "申请报价详情" } },
+		{ "path": "pages/customer/orders", "style": { "navigationBarTitleText": "我的报价" } },
+		{ "path": "pages/customer/contact", "style": { "navigationBarTitleText": "联系我们" } },
+		{ "path": "pages/customer/suggest", "style": { "navigationBarTitleText": "投诉建议" } },
+		{ "path": "pages/admin/requests", "style": { "navigationBarTitleText": "申请报价审核" } },
+		{ "path": "pages/admin/request-detail", "style": { "navigationBarTitleText": "审核详情" } },
+		{ "path": "pages/admin/suggestions", "style": { "navigationBarTitleText": "客户建议" } },
+		{ "path": "pages/admin/stats", "style": { "navigationBarTitleText": "统计分析" } },
+		{ "path": "pages/message/chat", "style": { "navigationBarTitleText": "站内信" } }
+	],
+	"tabBar": {
+		"color": "#8a8a8a",
+		"selectedColor": "#2563eb",
+		"backgroundColor": "#ffffff",
+		"borderStyle": "black",
+		"list": [
+			{ "pagePath": "pages/index/index", "text": "工作台" },
+			{ "pagePath": "pages/message/list", "text": "消息" },
+			{ "pagePath": "pages/mine/mine", "text": "我的" }
+		]
+	},
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "销售报价管理",
+		"navigationBarBackgroundColor": "#ffffff",
+		"backgroundColor": "#f2f4f8"
+	},
+	"uniIdRouter": {}
+}
