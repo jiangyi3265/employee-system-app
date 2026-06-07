@@ -1,6 +1,10 @@
 import App from './App'
 import { guardCurrentPage } from './utils/guard.js'
 
+if (typeof window !== 'undefined') {
+  window.__SQMS_BUILD_TIME__ = __APP_BUILD_TIME__
+}
+
 // #ifndef VUE3
 import Vue from 'vue'
 import './uni.promisify.adaptor'
