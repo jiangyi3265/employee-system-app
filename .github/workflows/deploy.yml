@@ -94,21 +94,34 @@ jobs:
             lines = path.read_text(encoding="utf-8").splitlines()
             next_lines = []
             i = 0
-            sqms_location = re.compile(r"^\s*location\b[^{]*?/sqms/?(?:\s|\{)")
+            sqms_location = re.compile(r"^\s*location\b(?=[^{;]*sqms)", re.IGNORECASE)
+
+            def skip_nginx_block(start_index):
+                index = start_index
+                depth = 0
+                saw_open_brace = False
+                while index < len(lines):
+                    current = lines[index]
+                    depth += current.count("{") - current.count("}")
+                    saw_open_brace = saw_open_brace or "{" in current
+                    index += 1
+                    if saw_open_brace and depth <= 0:
+                        break
+                    if not saw_open_brace and current.strip().endswith(";"):
+                        break
+                return index
 
             while i < len(lines):
                 line = lines[i]
                 if "# codex-sqms-proxy-start" in line:
+                    i += 1
                     while i < len(lines) and "# codex-sqms-proxy-end" not in lines[i]:
                         i += 1
-                    i += 1
+                    if i < len(lines):
+                        i += 1
                     continue
                 if sqms_location.search(line):
-                    depth = line.count("{") - line.count("}")
-                    i += 1
-                    while i < len(lines) and depth > 0:
-                        depth += lines[i].count("{") - lines[i].count("}")
-                        i += 1
+                    i = skip_nginx_block(i)
                     continue
                 next_lines.append(line)
                 i += 1
@@ -131,6 +144,10 @@ jobs:
                     break
             next_lines[insert_at:insert_at] = block
             path.write_text("\n".join(next_lines) + "\n", encoding="utf-8")
+            print("sqms lines after normalize:")
+            for line_number, line in enumerate(next_lines, start=1):
+                if "sqms" in line.lower():
+                    print(f"{line_number}: {line}")
             PY
             fi
 
