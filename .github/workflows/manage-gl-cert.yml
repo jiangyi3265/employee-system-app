@@ -147,16 +147,33 @@ jobs:
             text = conf.read_text(encoding="utf-8")
             cert_line = f"    ssl_certificate {fullchain};"
             key_line = f"    ssl_certificate_key {privkey};"
+            ssl_lines = [
+                "    listen 443 ssl http2;",
+                cert_line,
+                key_line,
+                "    ssl_protocols TLSv1.2 TLSv1.3;",
+                "    ssl_prefer_server_ciphers on;",
+            ]
+
+            if not re.search(r"^\s*listen\s+[^;]*443[^;]*;", text, flags=re.M):
+                listen_match = re.search(r"^\s*listen\s+[^;]+;\s*$", text, flags=re.M)
+                if not listen_match:
+                    raise SystemExit("Could not find a listen directive to attach SSL settings")
+                insert_at = listen_match.end()
+                text = text[:insert_at] + "\n" + "\n".join(ssl_lines) + text[insert_at:]
+            else:
+                if not re.search(r"^\s*ssl_certificate\s+[^;]+;", text, flags=re.M):
+                    server_name_match = re.search(r"^\s*server_name\s+[^;]+;\s*$", text, flags=re.M)
+                    if not server_name_match:
+                        raise SystemExit("Could not find server_name to attach SSL certificate")
+                    insert_at = server_name_match.end()
+                    text = text[:insert_at] + "\n" + cert_line + "\n" + key_line + text[insert_at:]
 
             if re.search(r"^\s*ssl_certificate\s+[^;]+;", text, flags=re.M):
                 text = re.sub(r"^\s*ssl_certificate\s+[^;]+;", cert_line, text, count=1, flags=re.M)
-            else:
-                text = re.sub(r"(^\s*listen\s+[^;]*443[^;]*;\s*$)", r"\1\n" + cert_line, text, count=1, flags=re.M)
 
             if re.search(r"^\s*ssl_certificate_key\s+[^;]+;", text, flags=re.M):
                 text = re.sub(r"^\s*ssl_certificate_key\s+[^;]+;", key_line, text, count=1, flags=re.M)
-            else:
-                text = text.replace(cert_line, cert_line + "\n" + key_line, 1)
 
             conf.write_text(text, encoding="utf-8")
             PY
