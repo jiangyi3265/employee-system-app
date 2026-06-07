@@ -122,6 +122,29 @@ jobs:
               exit 1
             fi
 
+            if [ -d /etc/letsencrypt/live ]; then
+              echo "== installing certbot deploy hook =="
+              mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+              cat > /etc/letsencrypt/renewal-hooks/deploy/gl-oksja-cn-bt-copy.sh <<HOOK
+            #!/bin/sh
+            set -e
+
+            DOMAIN="$DOMAIN"
+            CERT_DIR="$CERT_DIR"
+            LIVE_DIR="/etc/letsencrypt/live/$DOMAIN"
+
+            if [ -f "\$LIVE_DIR/fullchain.pem" ] && [ -f "\$LIVE_DIR/privkey.pem" ]; then
+              mkdir -p "\$CERT_DIR"
+              cp -L "\$LIVE_DIR/fullchain.pem" "\$CERT_DIR/fullchain.pem"
+              cp -L "\$LIVE_DIR/privkey.pem" "\$CERT_DIR/privkey.pem"
+              chmod 644 "\$CERT_DIR/fullchain.pem"
+              chmod 600 "\$CERT_DIR/privkey.pem"
+              nginx -t && (systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true)
+            fi
+            HOOK
+              chmod +x /etc/letsencrypt/renewal-hooks/deploy/gl-oksja-cn-bt-copy.sh
+            fi
+
             chmod 644 "$CERT_FULLCHAIN"
             chmod 600 "$CERT_KEY"
 
