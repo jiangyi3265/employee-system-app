@@ -2,10 +2,11 @@
 	<view class="page">
 		<global-stats />
 		<view class="search-bar row gap-s">
-			<input class="search-input" v-model="kw" placeholder="搜索产品名称/规格" @input="load" />
+			<input class="search-input" v-model="kw" placeholder="搜索产品名称 / 规格 / 品牌" @input="load" />
 			<button class="btn btn-sm query-btn" @click="goPriceQuery()">价格查询</button>
 		</view>
-		<view class="empty" v-if="!list.length">暂无产品</view>
+		<text class="t-muted product-count">共 {{ productTotal }} 个产品，当前显示 {{ list.length }} 个</text>
+		<view class="empty" v-if="!list.length">{{ kw ? '没有匹配的产品' : '暂无产品' }}</view>
 		<view class="card prod" v-for="p in list" :key="p._id">
 			<view class="row-between">
 				<view class="col flex1">
@@ -109,7 +110,7 @@ import { recentDealPrices, competitorQuotes, recommendQuote, isEffectiveQuoteIte
 export default {
 	data() {
 		return {
-			list: [], kw: '', orderId: '', focusedProductId: '', customerId: '', contextCustomerLabel: '',
+			list: [], kw: '', productTotal: 0, orderId: '', focusedProductId: '', customerId: '', contextCustomerLabel: '',
 			expanded: '',
 			recentDeals: [], recentQuotes: [], compQuotes: [], rec: null, customerExpect: null,
 			competitors: [], selCompId: '', selCompName: '', compInputPrice: ''
@@ -169,9 +170,27 @@ export default {
 		},
 		load() {
 			let list = db.list(T.PRODUCT, null, 'updateTime', true)
-			const kw = this.kw.trim()
-			if (kw) list = list.filter((p) => (p.name + p.spec + (p.brand || '')).indexOf(kw) >= 0)
-			this.list = list
+			this.productTotal = list.length
+			const kw = this.kw.trim().toLowerCase()
+			if (kw) {
+				list = list.filter((p) => {
+					const text = [
+						p.name,
+						p.spec,
+						p.brand,
+						p.category,
+						p.attr1,
+						p.attr2
+					].filter(Boolean).join(' ').toLowerCase()
+					return text.indexOf(kw) >= 0
+				})
+			}
+			const shown = list.slice(0, kw ? 80 : 30)
+			if (this.focusedProductId && !shown.some((p) => p._id === this.focusedProductId)) {
+				const focused = db.get(T.PRODUCT, this.focusedProductId)
+				if (focused) shown.unshift(focused)
+			}
+			this.list = shown
 		},
 		expand(p) {
 			this.expanded = p._id
@@ -250,6 +269,7 @@ export default {
 .search-bar { padding: 20rpx 24rpx; background: #fff; }
 .search-input { flex: 1; min-width: 0; background: #f3f4f6; border-radius: 999rpx; padding: 18rpx 32rpx; font-size: 28rpx; }
 .query-btn { width: 150rpx; padding: 0 12rpx; }
+.product-count { display: block; padding: 12rpx 24rpx 0; background: #fff; }
 .prod { margin: 16rpx 24rpx; }
 .rec-box { background: #eff6ff; border-radius: 12rpx; padding: 16rpx 20rpx; }
 .history-line { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 12rpx 0; border-bottom: 1rpx dashed #edf1f6; }

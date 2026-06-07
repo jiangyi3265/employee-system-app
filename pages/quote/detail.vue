@@ -109,10 +109,12 @@
 		<view class="modal-mask" v-if="showCustPicker" @click="showCustPicker = false">
 			<view class="modal-body" @click.stop>
 				<text class="t-title mb-m">选择客户</text>
+				<input class="input-box modal-search mb-s" v-model="customerKw" placeholder="输入客户名称 / 公司 / 手机筛选" @input="loadCustomers" />
+				<text class="t-muted mb-s">共 {{ customerTotal }} 个客户，当前显示 {{ customers.length }} 个</text>
 				<view class="picker-item" v-for="c in customers" :key="c._id" @click="selectCustomer(c)">
 					<text>{{ c.name }} · {{ c.phone }}</text>
 				</view>
-				<view class="empty" v-if="!customers.length">暂无客户</view>
+				<view class="empty" v-if="!customers.length">{{ customerKw ? '没有匹配的客户' : '暂无客户' }}</view>
 			</view>
 		</view>
 	</view>
@@ -139,6 +141,8 @@ export default {
 			showFollowForm: false,
 			showCustPicker: false,
 			customers: [],
+			customerKw: '',
+			customerTotal: 0,
 			session: {}
 		}
 	},
@@ -198,8 +202,30 @@ export default {
 		actor(f) { return followActor(f) },
 		dealLabel(s) { return DEAL_STATUS_LABEL[s] || '未知' },
 		pickCustomer() {
-			this.customers = db.list(T.CUSTOMER, { approved: true })
+			this.customerKw = ''
+			this.loadCustomers()
 			this.showCustPicker = true
+		},
+		loadCustomers() {
+			const kw = this.customerKw.trim().toLowerCase()
+			let list = db.list(T.CUSTOMER, { approved: true }, 'createTime', true)
+			this.customerTotal = list.length
+			if (kw) {
+				list = list.filter((c) => {
+					const text = [
+						c.name,
+						c.company,
+						c.phone,
+						c.contact,
+						c.address,
+						c.grade
+					].filter(Boolean).join(' ').toLowerCase()
+					return text.indexOf(kw) >= 0
+				})
+				this.customers = list.slice(0, 80)
+			} else {
+				this.customers = list.slice(0, 30)
+			}
 		},
 		selectCustomer(c) {
 			this.form.customerId = c._id
@@ -458,5 +484,6 @@ export default {
 .mini-ipt { width: 130rpx; min-height: 60rpx; line-height: 60rpx; background: #f8fafc; border: 1rpx solid #dbe4f0; border-radius: 14rpx; padding: 0 14rpx; font-size: 26rpx; color: #111827; font-weight: 700; text-align: center; }
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999; display: flex; align-items: flex-end; }
 .modal-body { width: 100%; background: #fff; border-radius: 28rpx 28rpx 0 0; padding: 40rpx; max-height: 70vh; overflow-y: auto; }
+.modal-search { height: 84rpx; min-height: 84rpx; line-height: normal; padding: 0 24rpx; }
 .picker-item { padding: 24rpx 0; border-bottom: 1rpx solid #f0f1f4; font-size: 30rpx; }
 </style>
