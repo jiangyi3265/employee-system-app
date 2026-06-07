@@ -80,8 +80,11 @@
 		</view>
 
 		<view class="card" v-if="id">
-			<text class="t-title mb-m">报价单跟进</text>
-			<view class="follow-box">
+			<view class="row-between mb-m">
+				<text class="t-title">报价单跟进</text>
+				<text class="inline-action" @click="showFollowForm = !showFollowForm">{{ showFollowForm ? '收起' : '+ 添加跟进' }}</text>
+			</view>
+			<view class="follow-box" v-if="showFollowForm">
 				<textarea class="input-box follow-input" v-model="followText" placeholder="输入本报价单跟进内容" />
 				<button class="btn btn-sm mt-s" @click="submitFollow">添加跟进</button>
 			</view>
@@ -133,6 +136,7 @@ export default {
 			items: [],
 			follows: [],
 			followText: '',
+			showFollowForm: false,
 			showCustPicker: false,
 			customers: [],
 			session: {}
@@ -344,6 +348,7 @@ export default {
 				content
 			})
 			this.followText = ''
+			this.showFollowForm = false
 			this.loadFollows()
 			toast('已添加跟进', 'success')
 		},

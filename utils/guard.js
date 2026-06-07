@@ -10,7 +10,8 @@ const COMMON_ROUTES = new Set([
 	'pages/index/index',
 	'pages/mine/mine',
 	'pages/message/list',
-	'pages/message/chat'
+	'pages/message/chat',
+	'pages/customer/contact'
 ])
 
 const CUSTOMER_ROUTES = new Set([

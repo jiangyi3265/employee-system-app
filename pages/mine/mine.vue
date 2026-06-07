@@ -61,7 +61,8 @@ export default {
 			}
 			const base = [
 				{ name: '我的报价单', icon: 'i-quote', url: '/pages/quote/list' },
-				{ name: '客户跟进', icon: 'i-phone', url: '/pages/follow/index' }
+				{ name: '客户跟进', icon: 'i-phone', url: '/pages/follow/index' },
+				{ name: '联系我们', icon: 'i-user', url: '/pages/customer/contact' }
 			]
 			if (this.session.role === ROLE.ADMIN) {
 				base.unshift({ name: '统计分析', icon: 'i-chart', url: '/pages/admin/stats' })

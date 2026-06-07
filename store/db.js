@@ -5,6 +5,7 @@
  */
 
 const PREFIX = 'sqms_' // sales quotation management system
+let writeListener = null
 
 function readTable(table) {
 	const raw = uni.getStorageSync(PREFIX + table)
@@ -16,8 +17,9 @@ function readTable(table) {
 	}
 }
 
-function writeTable(table, list) {
+function writeTable(table, list, silent = false) {
 	uni.setStorageSync(PREFIX + table, list)
+	if (!silent && typeof writeListener === 'function') writeListener(table)
 }
 
 function genId(prefix) {
@@ -113,11 +115,15 @@ export const db = {
 	},
 
 	/** 覆盖整张表 */
-	setAll(table, list) {
-		writeTable(table, list)
+	setAll(table, list, silent = false) {
+		writeTable(table, list, silent)
 	},
 
 	genId
 }
 
 export { genId, PREFIX }
+
+export function setWriteListener(listener) {
+	writeListener = listener
+}

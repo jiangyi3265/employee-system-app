@@ -34,7 +34,7 @@
 						<text class="t-muted mt-s">最低 {{ money(row.item.minPriceSnapshot) }}</text>
 					</view>
 				</view>
-				<text class="inline-action mt-s">进入报价单审核</text>
+				<text class="inline-action mt-s" @click.stop="goQuote(row.item.orderId)">进入报价单审核</text>
 			</view>
 		</view>
 
@@ -54,7 +54,7 @@
 			<view class="divider" style="margin: 16rpx 0;"></view>
 			<view class="row-between">
 				<text class="t-sub" style="font-size: 24rpx; color: #6b7280;">明细：{{ getItemsCount(r._id) }} 件商品待估价</text>
-				<text class="inline-action">{{ r.adminReviewStatus === 'pending' ? '管理员审核' : (r.status === 'submitted' ? '接单处理' : '查看详情') }}</text>
+				<text class="inline-action" @click.stop="go(r._id)">{{ r.adminReviewStatus === 'pending' ? '管理员审核' : (r.status === 'submitted' ? '接单处理' : '查看详情') }}</text>
 			</view>
 		</view>
 	</view>

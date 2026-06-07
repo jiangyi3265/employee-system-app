@@ -14,6 +14,7 @@
 		{ "path": "pages/quote/export", "style": { "navigationBarTitleText": "报价单导出" } },
 		{ "path": "pages/follow/index", "style": { "navigationBarTitleText": "客户跟进" } },
 		{ "path": "pages/follow/customer", "style": { "navigationBarTitleText": "客户跟进详情" } },
+		{ "path": "pages/follow/add", "style": { "navigationBarTitleText": "新增跟进" } },
 		{ "path": "pages/purchase/list", "style": { "navigationBarTitleText": "采购列表" } },
 		{ "path": "pages/purchase/detail", "style": { "navigationBarTitleText": "采购详情" } },
 		{ "path": "pages/archive/customer", "style": { "navigationBarTitleText": "客户档案" } },

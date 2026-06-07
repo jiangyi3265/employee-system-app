@@ -69,14 +69,14 @@
 				<!-- 同行报价录入 -->
 				<view class="mt-s">
 					<text class="t-bold" style="font-size:26rpx;">录入同行报价</text>
-					<view class="row gap-s mt-s">
+					<view class="quote-entry mt-s">
 						<picker :range="competitors" :range-key="'name'" @change="pickCompetitor">
-							<view class="input-box" style="padding:12rpx 16rpx;font-size:26rpx;min-width:160rpx;">
+							<view class="quote-entry-picker">
 								<text :class="selCompName ? '' : 't-muted'">{{ selCompName || '选择同行' }}</text>
 							</view>
 						</picker>
-						<input class="input-box" type="digit" v-model.number="compInputPrice" placeholder="报价" style="flex:1;padding:12rpx 16rpx;font-size:26rpx;" />
-						<button class="btn btn-sm" @click="addCompQuote(p)">录入</button>
+						<input class="quote-entry-input" type="digit" v-model.number="compInputPrice" placeholder="报价" />
+						<button class="btn btn-sm quote-entry-btn" @click="addCompQuote(p)">录入</button>
 					</view>
 				</view>
 
@@ -186,4 +186,9 @@ export default {
 .search-input { background: #f3f4f6; border-radius: 999rpx; padding: 18rpx 32rpx; font-size: 28rpx; }
 .prod { margin: 16rpx 24rpx; }
 .rec-box { background: #eff6ff; border-radius: 12rpx; padding: 16rpx 20rpx; }
+.quote-entry { display: flex; flex-direction: row; align-items: center; gap: 12rpx; flex-wrap: wrap; }
+.quote-entry-picker, .quote-entry-input { height: 68rpx; line-height: 68rpx; background: #f8fafc; border: 1rpx solid #e2e8f0; border-radius: 14rpx; padding: 0 18rpx; font-size: 25rpx; box-sizing: border-box; }
+.quote-entry-picker { min-width: 180rpx; max-width: 240rpx; }
+.quote-entry-input { flex: 1; min-width: 150rpx; text-align: center; }
+.quote-entry-btn { height: 68rpx; min-width: 92rpx; padding: 0 20rpx; font-size: 25rpx; }
 </style>

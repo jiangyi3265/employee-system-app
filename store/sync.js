@@ -1,0 +1,87 @@
+import { db, setWriteListener } from './db.js'
+import { T } from './schema.js'
+import { pullAll, pushTables } from './remote.js'
+
+const TABLES = Object.values(T)
+const LAST_PULL_KEY = 'sqms_last_pull_time'
+
+let enabled = false
+let timer = null
+const dirtyTables = new Set()
+
+setWriteListener(markDirty)
+
+export function enableRemoteSync(value = true) {
+	enabled = value
+}
+
+export function isRemoteSyncEnabled() {
+	return enabled
+}
+
+export async function syncFromRemote() {
+	const res = await pullAll()
+	const data = res.data || {}
+	const remoteCount = TABLES.reduce((count, table) => {
+		return count + (Array.isArray(data[table]) ? data[table].length : 0)
+	}, 0)
+	if (remoteCount === 0) {
+		uni.setStorageSync(LAST_PULL_KEY, data.serverTime || Date.now())
+		return data
+	}
+	TABLES.forEach((table) => {
+		if (Array.isArray(data[table])) {
+			db.setAll(table, data[table], true)
+		}
+	})
+	uni.setStorageSync(LAST_PULL_KEY, data.serverTime || Date.now())
+	return data
+}
+
+export async function syncAllToRemote() {
+	const tables = {}
+	TABLES.forEach((table) => {
+		tables[table] = db.list(table)
+	})
+	return pushTables(tables)
+}
+
+export function markDirty(table) {
+	if (!enabled || !table) return
+	dirtyTables.add(table)
+	if (timer) clearTimeout(timer)
+	timer = setTimeout(flushDirtyTables, 500)
+}
+
+export async function flushDirtyTables() {
+	if (!dirtyTables.size) return
+	const tables = {}
+	dirtyTables.forEach((table) => {
+		tables[table] = db.list(table)
+	})
+	dirtyTables.clear()
+	try {
+		await pushTables(tables)
+	} catch (e) {
+		Object.keys(tables).forEach((table) => dirtyTables.add(table))
+		console.warn('SQMS sync failed:', e && e.message ? e.message : e)
+	}
+}
+
+export async function bootstrapRemoteSync() {
+	try {
+		const data = await syncFromRemote()
+		enableRemoteSync(true)
+		const remoteCount = TABLES.reduce((count, table) => {
+			return count + (Array.isArray(data[table]) ? data[table].length : 0)
+		}, 0)
+		if (remoteCount === 0) {
+			await syncAllToRemote()
+		}
+		return true
+	} catch (e) {
+		console.warn('SQMS remote unavailable, using local data:', e && e.message ? e.message : e)
+		enableRemoteSync(false)
+		return false
+	}
+}

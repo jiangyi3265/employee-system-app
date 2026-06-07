@@ -16,7 +16,7 @@
 
 		<view class="sub-empty" v-if="!list.length">暂无联系人</view>
 
-		<view class="list-card contact" v-for="e in list" :key="e._id">
+		<view class="list-card contact" v-for="e in list" :key="e._id" @click="copyPhone(e)">
 			<view class="row-between">
 				<view class="col flex1">
 					<view class="row gap-s wrap">
@@ -27,7 +27,10 @@
 					<text class="t-sub mt-s">电话：{{ e.phone || '-' }}</text>
 					<text class="t-muted mt-s" v-if="e.remark">备注/负责事项：{{ e.remark }}</text>
 				</view>
-				<text class="inline-action" @click="copyPhone(e)">复制电话</text>
+				<view class="col contact-actions">
+					<text class="inline-action" @click.stop="copyPhone(e)">复制电话</text>
+					<text class="inline-action mt-s" v-if="isAdmin" @click.stop="editContact(e)">编辑</text>
+				</view>
 			</view>
 		</view>
 	</view>
@@ -35,17 +38,24 @@
 
 <script>
 import { db } from '@/store/db.js'
-import { T } from '@/store/schema.js'
+import { T, ROLE } from '@/store/schema.js'
 import { toast } from '@/utils/format.js'
+import { getSession } from '@/utils/auth.js'
 
 export default {
-	data() { return { employees: [], list: [], kw: '' } },
+	data() { return { employees: [], list: [], kw: '', session: {} } },
 	computed: {
 		salesCount() {
 			return this.employees.filter((e) => e.role !== 'admin').length
+		},
+		isAdmin() {
+			return this.session.role === ROLE.ADMIN
 		}
 	},
-	onShow() { this.load() },
+	onShow() {
+		this.session = getSession() || {}
+		this.load()
+	},
 	methods: {
 		load() {
 			this.employees = db.list(T.EMPLOYEE, { disabled: false }, 'createTime', true)
@@ -57,6 +67,9 @@ export default {
 		copyPhone(e) {
 			if (!e.phone) return toast('暂无电话')
 			uni.setClipboardData({ data: e.phone, success: () => toast('电话已复制', 'success') })
+		},
+		editContact(e) {
+			uni.navigateTo({ url: '/pages/archive/edit?type=employee&id=' + e._id })
 		}
 	}
 }
@@ -64,4 +77,5 @@ export default {
 
 <style lang="scss" scoped>
 .contact:active { transform: scale(0.995); }
+.contact-actions { align-items: flex-end; min-width: 120rpx; }
 </style>

@@ -15,13 +15,13 @@
 		<!-- 多单位换算 -->
 		<view class="card">
 			<text class="t-title mb-m">多单位换算</text>
-			<view class="row gap-s">
-				<view class="unit-box"><text class="t-muted">小单位</text><input class="unit-ipt" v-model="form.unitSmall" /></view>
-				<view class="unit-box"><text class="t-muted">中单位</text><input class="unit-ipt" v-model="form.unitMedium" /></view>
-				<view class="unit-box"><text class="t-muted">大单位</text><input class="unit-ipt" v-model="form.unitLarge" /></view>
+			<view class="unit-grid">
+				<view class="unit-box"><text class="unit-label">小单位</text><input class="unit-ipt" v-model="form.unitSmall" /></view>
+				<view class="unit-box"><text class="unit-label">中单位</text><input class="unit-ipt" v-model="form.unitMedium" /></view>
+				<view class="unit-box"><text class="unit-label">大单位</text><input class="unit-ipt" v-model="form.unitLarge" /></view>
 			</view>
-			<view class="field"><text class="field-label">1{{ form.unitMedium }}=</text><input class="field-input" type="number" v-model.number="form.mediumToSmall" /><text class="t-muted" style="margin-left:8rpx;">{{ form.unitSmall }}</text></view>
-			<view class="field"><text class="field-label">1{{ form.unitLarge }}=</text><input class="field-input" type="number" v-model.number="form.largeToMedium" /><text class="t-muted" style="margin-left:8rpx;">{{ form.unitMedium }}</text></view>
+			<view class="convert-row"><text class="convert-label">1{{ form.unitMedium }} =</text><input class="convert-input" type="number" v-model.number="form.mediumToSmall" /><text class="convert-unit">{{ form.unitSmall }}</text></view>
+			<view class="convert-row"><text class="convert-label">1{{ form.unitLarge }} =</text><input class="convert-input" type="number" v-model.number="form.largeToMedium" /><text class="convert-unit">{{ form.unitMedium }}</text></view>
 			<view class="conv">换算：1{{ form.unitLarge }} = {{ form.largeToMedium }}{{ form.unitMedium }} = {{ totalSmall }}{{ form.unitSmall }}</view>
 		</view>
 
@@ -242,8 +242,14 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.unit-box { flex: 1; display: flex; flex-direction: column; gap: 8rpx; }
-.unit-ipt { background: #f7f8fa; border-radius: 12rpx; padding: 16rpx; text-align: center; font-size: 28rpx; }
+.unit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14rpx; }
+.unit-box { min-height: 112rpx; display: flex; flex-direction: column; justify-content: center; gap: 10rpx; background: #f8fafc; border: 1rpx solid #e8edf5; border-radius: 14rpx; padding: 14rpx 12rpx; }
+.unit-label { color: #6b7280; font-size: 23rpx; text-align: center; line-height: 1.2; }
+.unit-ipt { min-height: 48rpx; line-height: 48rpx; background: #fff; border-radius: 10rpx; padding: 0 10rpx; text-align: center; font-size: 26rpx; }
+.convert-row { display: flex; flex-direction: row; align-items: center; min-height: 82rpx; margin-top: 16rpx; background: #f8fafc; border: 1rpx solid #e8edf5; border-radius: 14rpx; padding: 0 18rpx; }
+.convert-label { width: 150rpx; color: #374151; font-size: 27rpx; font-weight: 600; }
+.convert-input { flex: 1; min-height: 54rpx; line-height: 54rpx; background: #fff; border-radius: 10rpx; padding: 0 16rpx; text-align: center; font-size: 27rpx; }
+.convert-unit { width: 120rpx; color: #6b7280; font-size: 26rpx; text-align: right; }
 .conv { margin-top: 20rpx; background: #eff6ff; color: #2563eb; border-radius: 12rpx; padding: 16rpx 20rpx; font-size: 26rpx; line-height: 1.5; word-break: break-all; }
 .filter-chip { background: #f3f6fb; border: 1rpx solid #e8edf5; border-radius: 999rpx; padding: 10rpx 16rpx; font-size: 23rpx; color: #4b5563; }
 .history-section { padding: 8rpx 0; }

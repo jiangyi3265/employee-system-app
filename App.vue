@@ -1,9 +1,11 @@
 <script>
 	import { ensureSeed } from '@/store/seed.js'
+	import { bootstrapRemoteSync } from '@/store/sync.js'
 	export default {
-		onLaunch: function() {
+		onLaunch: async function() {
 			// 首次启动写入演示数据
 			ensureSeed()
+			await bootstrapRemoteSync()
 		},
 		onShow: function() {},
 		onHide: function() {}

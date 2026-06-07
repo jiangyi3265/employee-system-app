@@ -59,9 +59,10 @@
 			</view>
 		</view>
 
-		<view style="margin: 34rpx 24rpx;" v-if="draftMode && items.length">
+		<view style="margin: 34rpx 24rpx;" v-if="items.length && (draftMode || canEdit)">
 			<button class="btn btn-ghost btn-block mb-m" @click="copyRequestText">复制申请单文本</button>
-			<button class="btn btn-block" @click="submit">提交报价申请</button>
+			<button class="btn btn-block" v-if="draftMode" @click="submit">提交报价申请</button>
+			<button class="btn btn-block" v-else @click="resubmit">提交报价单</button>
 		</view>
 	</view>
 </template>
@@ -314,6 +315,40 @@ export default {
 			this.items = []
 			toast(modifyMode ? '已提交修改申请' : (appendMode ? '已追加报价申请' : '已提交报价申请'), 'success')
 			setTimeout(() => uni.navigateBack(), 300)
+		},
+		resubmit() {
+			if (!this.items.length) return toast('清单为空')
+			if (!this.request._id) return toast('申请单不存在')
+			const missing = this.items.find((it) => this.needSupplierQuote(it) && !(it.supplierQuotes || []).length)
+			if (missing) return toast(`${this.productName(missing)} 低于参考价需填写供货商报价`)
+			this.items.forEach((it) => {
+				db.update(T.REQUEST_ITEM, it._id, {
+					qty: Number(it.qty) || 1,
+					customerExpect: Number(it.customerExpect) || Number(it.suggestPrice) || 0,
+					supplierQuotes: (it.supplierQuotes || []).map((q) => ({ name: q.name, price: Number(q.price) || 0 }))
+				})
+			})
+			db.update(T.REQUEST_ORDER, this.request._id, {
+				status: 'submitted',
+				totalReference: this.totalReference,
+				resubmitTime: Date.now()
+			})
+			addFollowLog({
+				customerId: this.session.id,
+				customerName: this.session.name,
+				way: '系统',
+				actorRole: 'system',
+				source: 'request',
+				content: `客户重新提交报价申请，共 ${this.items.length} 项商品`
+			})
+			notifyEmployees('客户重新提交报价申请', `客户 ${this.session.name} 更新并重新提交了报价申请`, 'request', this.request._id, {
+				fromId: this.session.id,
+				fromName: this.session.name,
+				fromRole: this.session.role,
+				threadId: `request_${this.request._id}`
+			})
+			toast('报价单已提交', 'success')
+			this.load()
 		}
 	}
 }

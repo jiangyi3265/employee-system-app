@@ -4,3 +4,4 @@ dist/
 .hbuilderx/
 .DS_Store
 dev-server.log
+app-dev*.log
