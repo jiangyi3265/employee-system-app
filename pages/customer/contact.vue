@@ -14,7 +14,7 @@
 			<input class="toolbar-search" v-model="kw" placeholder="搜索姓名 / 职位 / 负责事项" @input="load" />
 		</view>
 
-		<view class="sub-empty" v-if="!list.length">暂无联系人</view>
+		<view class="sub-empty" v-if="!list.length">{{ loadingContacts ? '正在加载联系人...' : '暂无联系人' }}</view>
 
 		<view class="list-card contact" v-for="e in list" :key="e._id" @click="copyPhone(e)">
 			<view class="row-between">
@@ -41,9 +41,10 @@ import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
 import { toast } from '@/utils/format.js'
 import { getSession } from '@/utils/auth.js'
+import { pullAll } from '@/store/remote.js'
 
 export default {
-	data() { return { employees: [], list: [], kw: '', session: {} } },
+	data() { return { employees: [], list: [], kw: '', session: {}, loadingContacts: false } },
 	computed: {
 		salesCount() {
 			return this.employees.filter((e) => e.role !== 'admin').length
@@ -55,6 +56,7 @@ export default {
 	onShow() {
 		this.session = getSession() || {}
 		this.load()
+		this.refreshContacts()
 	},
 	methods: {
 		load() {
@@ -63,6 +65,22 @@ export default {
 			this.list = kw
 				? this.employees.filter((e) => (e.name + (e.position || '') + (e.phone || '') + (e.remark || '')).indexOf(kw) >= 0)
 				: this.employees
+		},
+		async refreshContacts() {
+			if (this.loadingContacts) return
+			this.loadingContacts = true
+			try {
+				const res = await pullAll()
+				const employees = (((res || {}).data || {})[T.EMPLOYEE] || []).filter((e) => !e.disabled)
+				if (employees.length) {
+					db.setAll(T.EMPLOYEE, employees, true)
+					this.load()
+				}
+			} catch (e) {
+				console.warn('Contact refresh failed:', e && e.message ? e.message : e)
+			} finally {
+				this.loadingContacts = false
+			}
 		},
 		copyPhone(e) {
 			if (!e.phone) return toast('暂无电话')
