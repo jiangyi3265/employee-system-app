@@ -480,7 +480,6 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.search-ipt { margin-bottom: 10rpx; }
 .picker-text { min-height: 58rpx; line-height: 1.4; white-space: normal; word-break: break-all; }
 .price-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10rpx; background: #f8fafc; border-radius: 14rpx; padding: 14rpx; }
 .price-num { display: block; margin-top: 6rpx; color: #111827; font-size: 24rpx; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
