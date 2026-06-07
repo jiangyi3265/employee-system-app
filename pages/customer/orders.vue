@@ -48,11 +48,6 @@
 					<text class="t-price t-bold" style="font-size:32rpx;">{{ money(orderFinance(o).amount) }}</text>
 				</view>
 			</view>
-			<view class="finance-grid">
-				<view><text class="t-muted">成本</text><text class="finance-num">{{ money(orderFinance(o).cost) }}</text></view>
-				<view><text class="t-muted">利润</text><text class="finance-num" :class="orderFinance(o).profit < 0 ? 't-danger' : 't-success'">{{ money(orderFinance(o).profit) }}</text></view>
-				<view><text class="t-muted">利润率</text><text class="finance-num" :class="orderFinance(o).profitRate < 10 ? 't-danger' : 't-success'">{{ orderFinance(o).profitRate }}%</text></view>
-			</view>
 			<view class="order-actions">
 				<button class="btn btn-sm btn-ghost action-btn" @click="copyQuote(o)">复制报价单</button>
 				<button class="btn btn-sm btn-ghost action-btn" v-if="o.dealStatus === 'pending'" @click="startQuoteModify(o)">申请修改</button>

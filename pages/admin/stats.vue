@@ -60,7 +60,7 @@
 		</view>
 
 		<view class="card">
-			<text class="t-title mb-m">产品成交排行</text>
+			<text class="t-title mb-m">产品成交排行（前100条）</text>
 			<view class="rank-item" v-for="(p, i) in prodRank" :key="i">
 				<view class="row-between">
 					<view class="row gap-s">
@@ -157,7 +157,7 @@ export default {
 				prodMap[it.productId].totalQty += Number(it.qty) || 0
 				prodMap[it.productId].totalAmount += (Number(it.price) || 0) * (Number(it.qty) || 0)
 			})
-			this.prodRank = Object.values(prodMap).sort((a, b) => b.totalAmount - a.totalAmount).slice(0, 10)
+			this.prodRank = Object.values(prodMap).sort((a, b) => b.totalAmount - a.totalAmount).slice(0, 100)
 			this.followStats = employees.map((e) => ({ employeeId: e._id, name: e.name, ...employeeFollowStats(e._id) }))
 		}
 	}

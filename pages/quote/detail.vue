@@ -53,8 +53,8 @@
 				<view class="row-between mt-s">
 					<view class="row gap-s">
 						<text class="t-sub">小计：{{ money(it.qty * it.price) }}</text>
-						<text class="t-sub">成本：{{ money(it.costPrice) }}</text>
-						<text class="t-sub" :class="itemProfitRate(it) < 10 ? 't-danger' : 't-success'">利润率：{{ itemProfitRate(it) }}%</text>
+						<text class="t-sub" v-if="!isCustomer">成本：{{ money(it.costPrice) }}</text>
+						<text class="t-sub" v-if="!isCustomer" :class="itemProfitRate(it) < 10 ? 't-danger' : 't-success'">利润率：{{ itemProfitRate(it) }}%</text>
 					</view>
 					<view class="row gap-s">
 						<text class="t-primary" @click="toggleDeal(it)">{{ it.status === 'done' ? '取消成交' : '标记成交' }}</text>
@@ -70,7 +70,7 @@
 				<text class="t-bold">合计</text>
 				<text class="t-price t-lg">{{ money(totalAmount) }}</text>
 			</view>
-			<view class="finance-box" v-if="items.length">
+			<view class="finance-box" v-if="items.length && !isCustomer">
 				<view class="row-between"><text class="t-sub">{{ amountLabel }}</text><text class="t-bold">{{ money(finance.amount) }}</text></view>
 				<view class="row-between"><text class="t-sub">成本金额</text><text class="t-bold">{{ money(finance.cost) }}</text></view>
 				<view class="row-between"><text class="t-sub">利润金额</text><text class="t-bold" :class="finance.profit < 0 ? 't-danger' : 't-success'">{{ money(finance.profit) }}</text></view>
@@ -151,6 +151,9 @@ export default {
 		},
 		isAdmin() {
 			return this.session.role === ROLE.ADMIN
+		},
+		isCustomer() {
+			return this.session.role === ROLE.CUSTOMER
 		},
 		pendingReviewCount() {
 			return this.items.filter((it) => it.needsAdminReview).length
@@ -446,7 +449,7 @@ export default {
 .follow-item { padding: 18rpx 0; border-bottom: 1rpx solid #f0f1f4; }
 .follow-item:last-child { border-bottom: none; }
 .finance-box { margin-top: 18rpx; background: #f8fafc; border: 1rpx solid #edf1f6; border-radius: 14rpx; padding: 16rpx 18rpx; }
-.mini-ipt { width: 120rpx; background: #f7f8fa; border-radius: 8rpx; padding: 8rpx 12rpx; font-size: 26rpx; text-align: center; }
+.mini-ipt { width: 130rpx; min-height: 60rpx; line-height: 60rpx; background: #f8fafc; border: 1rpx solid #dbe4f0; border-radius: 14rpx; padding: 0 14rpx; font-size: 26rpx; color: #111827; font-weight: 700; text-align: center; }
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999; display: flex; align-items: flex-end; }
 .modal-body { width: 100%; background: #fff; border-radius: 28rpx 28rpx 0 0; padding: 40rpx; max-height: 70vh; overflow-y: auto; }
 .picker-item { padding: 24rpx 0; border-bottom: 1rpx solid #f0f1f4; font-size: 30rpx; }

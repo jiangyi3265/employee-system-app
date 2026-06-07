@@ -377,8 +377,8 @@ export default {
 .request-order:active { transform: scale(0.995); }
 .request-summary { flex: 1; min-width: 0; margin-right: 16rpx; line-height: 1.5; }
 .request-product { margin-top: 16rpx; background: #f8fafc; border: 1rpx solid #edf1f6; border-radius: 14rpx; padding: 16rpx; }
-.mini-ipt { width: 140rpx; background: #f3f6fb; border: 1rpx solid #e2e8f0; border-radius: 12rpx; padding: 10rpx 12rpx; font-size: 26rpx; text-align: center; }
-.price-ipt { width: 180rpx; }
+.mini-ipt { width: 140rpx; min-height: 62rpx; line-height: 62rpx; background: #f8fafc; border: 1rpx solid #dbe4f0; border-radius: 14rpx; padding: 0 14rpx; font-size: 26rpx; color: #111827; font-weight: 700; text-align: center; }
+.price-ipt { width: 190rpx; }
 .support-box { background: #f8fafc; border-radius: 16rpx; padding: 18rpx; border: 1rpx solid #edf1f6; }
 .support-row { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 12rpx 0; border-bottom: 1rpx dashed #e5e7eb; }
 .support-row:last-of-type { border-bottom: none; }

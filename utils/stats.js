@@ -11,13 +11,20 @@ import { isEffectiveQuoteItem, isQuotableQuoteItem, round2 } from '@/utils/prici
  * 分类：已成交 / 已报价未成交 / 未报价
  * 预警：已报价未成交>=1天、未报价>=3天 给红色警告
  */
-export function customerFollowStatus(customer) {
-	const orders = db.list(T.QUOTE_ORDER, { customerId: customer._id })
-	const follows = db.list(T.FOLLOW, { customerId: customer._id }, 'createTime', true)
+export function customerFollowStatus(customer, employeeId = '') {
+	const allOrders = db.list(T.QUOTE_ORDER, { customerId: customer._id })
+	const orders = employeeId
+		? allOrders.filter((o) => o.employeeId === employeeId)
+		: allOrders
+	const follows = db.list(T.FOLLOW, { customerId: customer._id }, 'createTime', true).filter((f) => {
+		if (f.actorRole === 'system' || f.way === '系统') return false
+		return employeeId ? f.employeeId === employeeId : true
+	})
 	const lastFollowTime = follows.length ? follows[0].createTime : customer.createTime
 	const days = daysSince(lastFollowTime)
 	const lastQuoteTime = orders.length ? Math.max(...orders.map((o) => o.createTime || 0)) : 0
-	const dealtItems = db.list(T.QUOTE_ITEM, { customerId: customer._id, status: 'done' }, 'updateTime', true).filter(isEffectiveQuoteItem)
+	let dealtItems = db.list(T.QUOTE_ITEM, { customerId: customer._id, status: 'done' }, 'updateTime', true).filter(isEffectiveQuoteItem)
+	if (employeeId) dealtItems = dealtItems.filter((it) => it.employeeId === employeeId)
 	const lastDealTime = dealtItems.length ? dealtItems[0].updateTime || dealtItems[0].createTime : 0
 
 	let category, threshold
@@ -61,7 +68,7 @@ export function followList(employeeId) {
 	if (employeeId) {
 		customers = customers.filter((c) => c.ownerId === employeeId || !c.ownerId)
 	}
-	const list = customers.map(customerFollowStatus)
+	const list = customers.map((customer) => customerFollowStatus(customer, employeeId))
 	// 倒序：警告优先，再按未跟进天数
 	list.sort((a, b) => {
 		if (a.warning !== b.warning) return a.warning ? -1 : 1
@@ -162,13 +169,15 @@ export function employeeDashboard(employeeId) {
 	const items = db.list(T.QUOTE_ITEM, { employeeId, status: 'done' }).filter(isEffectiveQuoteItem)
 	const dealAmount = sumBy(items, (it) => (Number(it.price) || 0) * (Number(it.qty) || 0))
 	const follow = employeeFollowStats(employeeId)
+	const pendingQuoteReview = pendingSpecialPriceCount(employeeId)
 	return {
 		quoteCount: orders.length,
 		dealCount: dealtOrders.length,
 		dealAmount,
 		overdueFollow: follow.overdue,
 		followRate: follow.rate,
-		pendingQuoteReview: pendingSpecialPriceCount(employeeId)
+		pendingQuoteReview,
+		pendingRequest: db.count(T.REQUEST_ORDER, { status: 'submitted' }) + pendingQuoteReview
 	}
 }
 

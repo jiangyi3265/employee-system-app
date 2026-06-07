@@ -24,18 +24,24 @@
 					<view class="row gap-s">
 						<text class="t-sub">建议价：{{ money(it.suggestPrice) }}</text>
 						<text class="t-sub">客户预期：</text>
-						<input class="mini-ipt" type="digit" v-model.number="it.customerExpect" placeholder="选填" style="width:140rpx;" @blur="recalcItem(it)" />
+						<input class="mini-ipt price-ipt" type="digit" v-model.number="it.customerExpect" placeholder="选填" @blur="recalcItem(it)" />
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">报价</text>
-						<input class="mini-ipt" type="digit" v-model.number="it.quotePrice" style="width:140rpx;" @blur="validateItemQuote(it)" />
+						<input class="mini-ipt price-ipt" type="digit" v-model.number="it.quotePrice" @blur="validateItemQuote(it)" />
 					</view>
 				</view>
 				<view class="support-box mt-s" v-if="it.supplierQuotes && it.supplierQuotes.length">
 					<text class="t-bold" style="font-size:24rpx;">客户提供供货商报价</text>
-					<view class="row-between mt-s" v-for="(q, qi) in it.supplierQuotes" :key="qi">
-						<text class="t-sub">{{ q.name || '供货商' }}</text>
-						<text class="t-price">{{ money(q.price) }}</text>
+					<view class="support-line mt-s" v-for="(q, qi) in it.supplierQuotes" :key="qi">
+						<view class="col flex1">
+							<text class="t-sub">{{ q.name || '供货商' }}</text>
+							<text class="t-muted">客户提供，仅作报价判断</text>
+						</view>
+						<view class="row gap-s">
+							<text class="t-price">{{ money(q.price) }}</text>
+							<text class="inline-action" @click="saveSupplierQuote(it, q)">存入报价库</text>
+						</view>
 					</view>
 				</view>
 				<view class="rec-box mt-s" v-if="it._rec">
@@ -173,6 +179,30 @@ export default {
 			it._rec = this.buildRecommendation(it)
 			it.quotePrice = it._rec.price
 		},
+		saveSupplierQuote(it, quote) {
+			const name = (quote.name || '供货商').trim()
+			const price = Number(quote.price) || 0
+			if (!it.productId) return toast('商品信息不完整，无法保存')
+			if (price <= 0) return toast('供货商报价无效')
+			const exists = db.list(T.COMP_QUOTE, { productId: it.productId }).find((row) => {
+				const rowName = row.competitorName || row.supplierName || ''
+				return rowName === name && Number(row.price) === price
+			})
+			if (exists) return toast('报价库中已有相同记录')
+			db.insert(T.COMP_QUOTE, {
+				productId: it.productId,
+				competitorId: '',
+				competitorName: name,
+				supplierName: name,
+				price,
+				source: 'customerSupplierQuote',
+				sourceRequestOrderId: this.id,
+				sourceRequestItemId: it._id,
+				sourceCustomerId: this.order.customerId,
+				sourceCustomerName: this.order.customerName
+			})
+			toast('已存入报价库', 'success')
+		},
 		insertQuoteItem(orderId, it, orderOwner) {
 			const product = db.get(T.PRODUCT, it.productId)
 			const quotePrice = Number(it.quotePrice) || (product && product.suggestPrice) || 0
@@ -206,6 +236,19 @@ export default {
 			})
 			return audit.specialPrice ? 1 : 0
 		},
+		syncRequestItemsToQuoteOrder(quoteOrder) {
+			db.removeWhere(T.QUOTE_ITEM, { orderId: quoteOrder._id })
+			let specialCount = 0
+			this.items.forEach((it) => {
+				if (!Number(it.quotePrice)) it.quotePrice = Number(it.customerExpect) || Number(it.suggestPrice) || 0
+				specialCount += this.insertQuoteItem(quoteOrder._id, it, {
+					employeeId: quoteOrder.employeeId || this.session.id,
+					employeeName: quoteOrder.employeeName || this.session.name
+				})
+			})
+			refreshOrderDealStatus(quoteOrder._id)
+			return specialCount
+		},
 		acceptQuoteOrder() {
 			const existingId = this.order.approvedQuoteOrderId || this.order.acceptedQuoteOrderId
 			if (existingId) {
@@ -232,6 +275,21 @@ export default {
 				const existing = db.get(T.QUOTE_ORDER, existingId)
 				if (existing) {
 					db.update(T.QUOTE_ORDER, existing._id, { sourceRequestOrderId: this.id })
+					const specialCount = this.syncRequestItemsToQuoteOrder(existing)
+					db.update(T.REQUEST_ORDER, this.id, {
+						acceptedQuoteOrderId: existing._id,
+						acceptedEmployeeId: existing.employeeId || this.session.id,
+						acceptedEmployeeName: existing.employeeName || this.session.name
+					})
+					addOrderSystemFollow(existing._id, `${this.session.name} 重新同步客户报价申请明细，已带入客户预期价`, this.session)
+					if (specialCount) {
+						notifyEmployees('低价报价待审核', `${this.session.name} 同步客户报价申请后，有 ${specialCount} 项报价低于最低销售价`, 'quote', existing._id, {
+							fromId: this.session.id,
+							fromName: this.session.name,
+							fromRole: this.session.role,
+							threadId: `quote_${existing._id}_special`
+						})
+					}
 					toast('正在进入已接单报价单', 'success')
 					setTimeout(() => {
 						uni.redirectTo({ url: '/pages/quote/detail?id=' + existing._id })
@@ -440,7 +498,10 @@ export default {
 .item-row:last-child { border-bottom: none; }
 .product-link { color: #2563eb; }
 .review-tip { display: block; text-align: center; padding: 18rpx 0; font-size: 26rpx; }
-.mini-ipt { width: 120rpx; background: #f7f8fa; border-radius: 8rpx; padding: 8rpx 12rpx; font-size: 26rpx; text-align: center; }
+.mini-ipt { width: 120rpx; min-height: 60rpx; line-height: 60rpx; background: #f8fafc; border: 1rpx solid #dbe4f0; border-radius: 14rpx; padding: 0 14rpx; font-size: 26rpx; color: #111827; font-weight: 700; text-align: center; }
+.price-ipt { width: 170rpx; }
 .rec-box { background: #eff6ff; border-radius: 12rpx; padding: 12rpx 16rpx; }
 .support-box { background: #f8fafc; border: 1rpx solid #edf1f6; border-radius: 12rpx; padding: 12rpx 16rpx; }
+.support-line { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 16rpx; padding: 10rpx 0; border-bottom: 1rpx dashed #e5e7eb; }
+.support-line:last-child { border-bottom: none; }
 </style>

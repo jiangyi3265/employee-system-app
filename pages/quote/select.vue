@@ -25,18 +25,24 @@
 				<!-- 最近成交价 -->
 				<view class="mt-s" v-if="recentDeals.length">
 					<text class="t-bold" style="font-size:26rpx;">最近成交价</text>
-					<view class="row-between" v-for="d in recentDeals" :key="d._id">
-						<text class="t-sub">{{ money(d.price) }}</text>
-						<text class="t-muted">{{ fmt(d.updateTime) }}</text>
+					<view class="history-line" v-for="d in recentDeals" :key="d._id">
+						<view class="col flex1">
+							<text class="t-sub">{{ historyParty(d) }}</text>
+							<text class="t-muted">{{ fmt(d.updateTime || d.createTime) }}</text>
+						</view>
+						<text class="t-price">{{ money(d.price) }}</text>
 					</view>
 				</view>
 
 				<!-- 最近报价 -->
 				<view class="mt-s" v-if="recentQuotes.length">
 					<text class="t-bold" style="font-size:26rpx;">最近报价</text>
-					<view class="row-between" v-for="q in recentQuotes" :key="q._id">
-						<text class="t-sub">{{ money(q.price) }}</text>
-						<text class="t-muted">{{ fmt(q.updateTime) }}</text>
+					<view class="history-line" v-for="q in recentQuotes" :key="q._id">
+						<view class="col flex1">
+							<text class="t-sub">{{ historyParty(q) }}</text>
+							<text class="t-muted">{{ fmt(q.updateTime || q.createTime) }}</text>
+						</view>
+						<text class="t-price">{{ money(q.price) }}</text>
 					</view>
 				</view>
 
@@ -52,7 +58,7 @@
 				<!-- 客户预期价 -->
 				<view class="field mt-s">
 					<text class="field-label" style="width:auto;margin-right:12rpx;">客户预期价</text>
-					<input class="field-input" type="digit" v-model.number="customerExpect" placeholder="选填" style="flex:1;" @blur="calcRecommend(p)" />
+					<input class="expect-input" type="digit" v-model.number="customerExpect" placeholder="选填" @blur="calcRecommend(p)" />
 				</view>
 
 				<!-- 系统推荐报价 -->
@@ -120,6 +126,19 @@ export default {
 	methods: {
 		money(n) { return fmtMoney(n) },
 		fmt(t) { return fmtDate(t) },
+		historyParty(item) {
+			const customer = item.customerName || this.customerName(item.customerId)
+			const employee = item.employeeName || this.employeeName(item.employeeId)
+			return [customer, employee].filter(Boolean).join(' · ') || '-'
+		},
+		customerName(id) {
+			const c = db.get(T.CUSTOMER, id)
+			return c ? c.name : ''
+		},
+		employeeName(id) {
+			const e = db.get(T.EMPLOYEE, id)
+			return e ? e.name : ''
+		},
 		load() {
 			let list = db.list(T.PRODUCT, null, 'updateTime', true)
 			const kw = this.kw.trim()
@@ -186,6 +205,9 @@ export default {
 .search-input { background: #f3f4f6; border-radius: 999rpx; padding: 18rpx 32rpx; font-size: 28rpx; }
 .prod { margin: 16rpx 24rpx; }
 .rec-box { background: #eff6ff; border-radius: 12rpx; padding: 16rpx 20rpx; }
+.history-line { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 12rpx 0; border-bottom: 1rpx dashed #edf1f6; }
+.history-line:last-child { border-bottom: none; }
+.expect-input { flex: 1; min-width: 0; height: 68rpx; line-height: 68rpx; background: #f8fafc; border: 1rpx solid #dbe4f0; border-radius: 16rpx; padding: 0 22rpx; font-size: 28rpx; color: #111827; font-weight: 700; text-align: right; }
 .quote-entry { display: flex; flex-direction: row; align-items: center; gap: 12rpx; flex-wrap: wrap; }
 .quote-entry-picker, .quote-entry-input { height: 68rpx; line-height: 68rpx; background: #f8fafc; border: 1rpx solid #e2e8f0; border-radius: 14rpx; padding: 0 18rpx; font-size: 25rpx; box-sizing: border-box; }
 .quote-entry-picker { min-width: 180rpx; max-width: 240rpx; }
