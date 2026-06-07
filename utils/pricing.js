@@ -122,7 +122,7 @@ export function recommendQuote(opts) {
 		costPrice = 0,
 		recentDeal = null,      // 最近一次成交价（取近三条第一条）
 		competitorMin = null,   // 同行最低报价
-		supportMin = null,      // 客户提供的其他供货商最低报价
+		supportMin = null,      // 客户提供、公司内部按同行处理的最低报价
 		customerExpect = null   // 客户预期价（仅参考）
 	} = opts || {}
 
@@ -166,19 +166,19 @@ export function recommendQuote(opts) {
 		}
 	}
 
-	// ===== 第三步：客户提供的其他供货商报价 =====
+	// ===== 第三步：客户提供的其他商家报价（内部按同行处理）=====
 	if (supportMin != null && supportMin > 0 && price > supportMin) {
 		if (supportMin >= minPrice) {
 			price = supportMin
-			basis = '客户供货商报价'
+			basis = '客户提供同行报价'
 		} else if (supportMin < minPrice && supportMin >= costPrice) {
 			price = minPrice
 			basis = '最低销售价'
-			warning = '客户供货商报价低于最低销售价，需管理员特批才可低价报价'
+			warning = '客户提供同行报价低于最低销售价，需管理员特批才可低价报价'
 		} else if (supportMin < costPrice) {
 			price = suggestPrice
 			basis = '建议销售价'
-			warning = '客户提供供货商报价低于成本，报价成功率低，建议更换货源'
+			warning = '客户提供同行报价低于成本，报价成功率低，建议更换货源'
 		}
 	}
 

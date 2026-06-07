@@ -127,10 +127,16 @@ export default {
 	},
 	methods: {
 		decodeQuery(value) {
+			let text = value || ''
 			try {
-				return decodeURIComponent(value || '')
+				for (let i = 0; i < 3; i += 1) {
+					const next = decodeURIComponent(text)
+					if (next === text) break
+					text = next
+				}
+				return text
 			} catch (e) {
-				return value || ''
+				return text
 			}
 		},
 		applyQuerySeed(q) {

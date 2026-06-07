@@ -43,7 +43,7 @@
 				<text class="t-title">客户比价商家</text>
 				<text class="inline-action" @click="clearCompetitors">清空</text>
 			</view>
-			<view class="empty-lite" v-if="!competitorRows.length">暂无同行/供货商报价</view>
+			<view class="empty-lite" v-if="!competitorRows.length">暂无同行报价</view>
 			<view class="competitor-grid" v-else>
 				<view
 					class="competitor-chip"
@@ -62,7 +62,7 @@
 				<text class="t-muted">已选 {{ selectedCompetitorRows.length }} 家，三方最低参考</text>
 				<text class="t-price t-lg">{{ money(selectedCompetitorMin) }}</text>
 			</view>
-			<text class="t-muted mt-s" v-else>勾选客户实际询价的同行/供货商后，系统只用已选范围计算最低参考价。</text>
+			<text class="t-muted mt-s" v-else>勾选客户实际询价的同行后，系统只用已选范围计算最低参考价。</text>
 		</view>
 
 		<view class="card" v-if="recommendation">
@@ -102,7 +102,7 @@
 		</view>
 
 		<view class="card" v-if="product">
-			<text class="t-title mb-m">同行/供货商历史报价（每家最近一条）</text>
+			<text class="t-title mb-m">同行历史报价（每家最近一条）</text>
 			<view class="price-row" v-for="row in competitorRows" :key="row.key">
 				<view class="col flex1">
 					<text class="t-bold" style="font-size:27rpx;">{{ row.name }}</text>
@@ -110,7 +110,7 @@
 				</view>
 				<text class="t-price">{{ money(row.price) }}</text>
 			</view>
-			<view class="empty-lite" v-if="!competitorRows.length">暂无同行/供货商报价</view>
+			<view class="empty-lite" v-if="!competitorRows.length">暂无同行报价</view>
 		</view>
 
 		<view class="card" v-if="product">
@@ -405,14 +405,13 @@ export default {
 				if (orderId && !orders[orderId]) orders[orderId] = db.get(T.REQUEST_ORDER, orderId) || {}
 				const order = orderId ? orders[orderId] : {}
 				supplierQuotes.forEach((quote, index) => {
-					const name = (quote.name || quote.supplierName || '供货商').trim()
+					const name = (quote.name || quote.supplierName || '同行').trim()
 					const price = Number(quote.price) || 0
 					if (!price) return
 					rows.push(this.enrichCompetitor({
 						_id: `request_supplier_${item._id || orderId}_${index}_${name}`,
 						productId: item.productId,
 						competitorName: name,
-						supplierName: name,
 						price,
 						source: 'customerSupplierQuote',
 						sourceRequestOrderId: orderId,
@@ -441,11 +440,11 @@ export default {
 			}
 		},
 		enrichCompetitor(row) {
-			const name = row.competitorName || row.supplierName || this.nameOf(T.COMPETITOR, row.competitorId) || this.nameOf(T.SUPPLIER, row.supplierId) || '未知供货商'
+			const name = row.competitorName || row.supplierName || this.nameOf(T.COMPETITOR, row.competitorId) || this.nameOf(T.SUPPLIER, row.supplierId) || '未知同行'
 			const key = row.competitorId || row.supplierId || name
 			const customerId = row.sourceCustomerId || row.customerId || ''
 			const customerName = row.sourceCustomerName || row.customerName || this.nameOf(T.CUSTOMER, customerId)
-			const sourceLabel = row.source === 'customerSupplierQuote' ? '客户提供供货商报价' : '同行/供货商'
+			const sourceLabel = row.source === 'customerSupplierQuote' ? '客户提供同行报价' : '同行'
 			return {
 				...row,
 				key,
