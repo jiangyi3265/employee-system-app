@@ -79,6 +79,10 @@ jobs:
             CONF="/www/server/panel/vhost/nginx/gl.oksja.cn.conf"
             BACKEND_PORT="${{ env.BACKEND_PORT }}"
             if [ -f "$CONF" ]; then
+              sed -i '/# codex-sqms-proxy-start/,/# codex-sqms-proxy-end/d' "$CONF"
+            fi
+
+            if [ -f "$CONF" ] && ! grep -Eq 'location[[:space:]]+(\^~[[:space:]]+)?/sqms/' "$CONF"; then
               BLOCK_FILE="$(mktemp)"
               cat > "$BLOCK_FILE" <<EOF
                 # codex-sqms-proxy-start
@@ -91,7 +95,6 @@ jobs:
                 }
                 # codex-sqms-proxy-end
             EOF
-              sed -i '/# codex-sqms-proxy-start/,/# codex-sqms-proxy-end/d' "$CONF"
               TMP_CONF="$(mktemp)"
               awk -v block="$(cat "$BLOCK_FILE")" '
                 { lines[NR] = $0 }
