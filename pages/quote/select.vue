@@ -12,6 +12,7 @@
 				<view class="col flex1">
 					<text class="t-title" style="font-size:28rpx;">{{ p.name }}</text>
 					<text class="t-sub">{{ p.spec }} · {{ p.brand || '-' }}</text>
+					<text class="t-muted mt-s">成本 {{ money(p.costPrice) }} · 采购 {{ money(p.purchasePrice) }}</text>
 				</view>
 				<text class="t-price">{{ money(p.suggestPrice) }}</text>
 			</view>
@@ -23,6 +24,33 @@
 				<view class="row-between"><text class="t-sub">最低销售价</text><text class="t-sub">{{ money(p.minPrice) }}</text></view>
 				<view class="row-between"><text class="t-sub">建议销售价</text><text class="t-sub">{{ money(p.suggestPrice) }}</text></view>
 				<view class="row-between"><text class="t-sub">零售价</text><text class="t-sub">{{ money(p.retailPrice) }}</text></view>
+
+				<!-- 采购 / 供货商价格趋势 -->
+				<view class="purchase-box mt-s">
+					<view class="row-between">
+						<text class="t-bold" style="font-size:26rpx;">供货商采购参考</text>
+						<text class="t-muted">当前成本 {{ money(p.costPrice) }}</text>
+					</view>
+					<view class="supplier-grid mt-s" v-if="supplierLatest.length">
+						<view class="supplier-chip" :class="{ best: s.isBest }" v-for="s in supplierLatest" :key="s.supplierKey">
+							<text class="supplier-name">{{ s.supplierName }}</text>
+							<text class="supplier-price">{{ money(s.purchasePrice) }}</text>
+							<text class="supplier-trend" :class="trendClass(s)">{{ trendText(s) }}</text>
+						</view>
+					</view>
+					<view class="empty-mini" v-if="!purchaseRows.length">暂无采购记录</view>
+					<view class="purchase-row" v-for="row in purchaseRows" :key="row._id">
+						<view class="col flex1">
+							<text class="t-sub">{{ row.supplierName }} · 数量 {{ row.qty || '-' }}</text>
+							<text class="t-muted">{{ fmt(row.time) }}</text>
+						</view>
+						<view class="col purchase-price-col">
+							<text class="t-price">{{ money(row.purchasePrice) }}</text>
+							<text class="t-muted">成本 {{ money(row.costPrice) }}</text>
+							<text :class="trendClass(row)">{{ trendText(row) }}</text>
+						</view>
+					</view>
+				</view>
 
 				<!-- 最近成交价 -->
 				<view class="mt-s" v-if="recentDeals.length">
@@ -105,14 +133,14 @@
 import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtMoney, fmtDate, toast } from '@/utils/format.js'
-import { recentDealPrices, competitorQuotes, recommendQuote, isEffectiveQuoteItem } from '@/utils/pricing.js'
+import { recentDealPrices, competitorQuotes, recommendQuote, isEffectiveQuoteItem, calcPrices, round2 } from '@/utils/pricing.js'
 
 export default {
 	data() {
 		return {
 			list: [], kw: '', productTotal: 0, orderId: '', focusedProductId: '', customerId: '', contextCustomerLabel: '',
 			expanded: '',
-			recentDeals: [], recentQuotes: [], compQuotes: [], rec: null, customerExpect: null,
+			recentDeals: [], recentQuotes: [], compQuotes: [], purchaseRows: [], supplierLatest: [], rec: null, customerExpect: null,
 			competitors: [], selCompId: '', selCompName: '', compInputPrice: ''
 		}
 	},
@@ -201,7 +229,55 @@ export default {
 				.filter(isEffectiveQuoteItem)
 				.slice(0, 3)
 			this.compQuotes = competitorQuotes(p._id)
+			this.loadPurchaseRefs(p._id)
 			this.calcRecommend(p)
+		},
+		supplierName(id) {
+			const s = id ? db.get(T.SUPPLIER, id) : null
+			return s ? s.name : ''
+		},
+		loadPurchaseRefs(productId) {
+			const rows = db.list(T.PURCHASE_ITEM, { productId }, 'createTime', true).map((row) => {
+				const purchasePrice = Number(row.purchasePrice) || 0
+				const freight = Number(row.freightShare) || 0
+				const supplierName = row.supplierName || this.supplierName(row.supplierId) || '未知供货商'
+				return {
+					...row,
+					purchasePrice,
+					costPrice: calcPrices(purchasePrice, null, freight).costPrice,
+					time: Number(row.updateTime || row.createTime) || 0,
+					supplierName,
+					supplierKey: row.supplierId || supplierName
+				}
+			}).sort((a, b) => b.time - a.time)
+			const groups = {}
+			rows.forEach((row) => {
+				const key = row.supplierKey || row._id
+				if (!groups[key]) groups[key] = []
+				groups[key].push(row)
+			})
+			Object.values(groups).forEach((group) => {
+				group.sort((a, b) => b.time - a.time)
+				group.forEach((row, index) => {
+					const prev = group[index + 1]
+					row.prevPurchasePrice = prev ? prev.purchasePrice : null
+					row.delta = prev ? round2(row.purchasePrice - prev.purchasePrice) : null
+				})
+			})
+			this.purchaseRows = rows.slice(0, 12)
+			this.supplierLatest = Object.keys(groups).map((key) => groups[key][0])
+				.sort((a, b) => a.purchasePrice - b.purchasePrice)
+				.slice(0, 6)
+				.map((row, index) => ({ ...row, isBest: index === 0 }))
+		},
+		trendText(row) {
+			if (row.delta == null) return '首次'
+			if (Math.abs(row.delta) < 0.01) return '持平'
+			return `${row.delta > 0 ? '涨' : '降'} ${this.money(Math.abs(row.delta))}`
+		},
+		trendClass(row) {
+			if (row.delta == null || Math.abs(row.delta) < 0.01) return 't-muted'
+			return row.delta > 0 ? 't-danger' : 't-success'
 		},
 		calcRecommend(p) {
 			const deal = this.historyDealPrice(p._id)
@@ -272,6 +348,16 @@ export default {
 .product-count { display: block; padding: 12rpx 24rpx 0; background: #fff; }
 .prod { margin: 16rpx 24rpx; }
 .rec-box { background: #eff6ff; border-radius: 12rpx; padding: 16rpx 20rpx; }
+.purchase-box { background: #f8fafc; border: 1rpx solid #e6edf6; border-radius: 16rpx; padding: 18rpx; }
+.supplier-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12rpx; }
+.supplier-chip { width: calc(50% - 6rpx); padding: 14rpx; border-radius: 14rpx; background: #fff; border: 1rpx solid #edf1f6; }
+.supplier-chip.best { border-color: #2563eb; background: #eff6ff; }
+.supplier-name { display: block; color: #111827; font-size: 24rpx; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.supplier-price { display: block; color: #ef4444; font-size: 28rpx; font-weight: 800; margin-top: 4rpx; }
+.supplier-trend { display: block; font-size: 22rpx; margin-top: 4rpx; }
+.purchase-row { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 14rpx 0; border-top: 1rpx dashed #e6edf6; }
+.purchase-price-col { align-items: flex-end; min-width: 170rpx; }
+.empty-mini { color: #9ca3af; font-size: 26rpx; text-align: center; padding: 28rpx 0 10rpx; }
 .history-line { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 12rpx 0; border-bottom: 1rpx dashed #edf1f6; }
 .history-line:last-child { border-bottom: none; }
 .expect-input { flex: 1; min-width: 0; height: 68rpx; line-height: 68rpx; background: #f8fafc; border: 1rpx solid #dbe4f0; border-radius: 16rpx; padding: 0 22rpx; font-size: 28rpx; color: #111827; font-weight: 700; text-align: right; }

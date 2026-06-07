@@ -60,6 +60,34 @@ export function manualThreadId(fromId, toId) {
 	return 'manual_' + [fromId, toId].filter(Boolean).sort().join('_')
 }
 
+export function postGroupMessage(fromSession, target, content) {
+	const group = target && target.group
+	if (!group) return []
+	const rows = group === 'customers'
+		? db.list(T.CUSTOMER, { approved: true }, 'name').map((c) => ({ id: c._id, role: ROLE.CUSTOMER, name: c.name }))
+		: db.list(T.EMPLOYEE, null, 'name').filter((e) => !e.disabled && e._id !== fromSession.id).map((e) => ({
+			id: e._id,
+			role: e.role || ROLE.EMPLOYEE,
+			name: e.name
+		}))
+	return rows.filter((row) => row.id && row.id !== fromSession.id).map((row) => db.insert(T.MESSAGE, {
+		toType: 'user',
+		toId: row.id,
+		toRole: row.role,
+		toName: row.name,
+		threadId: manualThreadId(fromSession.id, row.id),
+		content,
+		title: target.title || '站内信',
+		type: 'chat',
+		fromId: fromSession.id,
+		fromName: fromSession.name,
+		fromRole: fromSession.role,
+		groupType: group,
+		groupName: target.name || '',
+		read: false
+	}))
+}
+
 export function postThread(threadId, fromSession, toId, content) {
 	const target = typeof toId === 'object' ? toId : { id: toId }
 	return db.insert(T.MESSAGE, {

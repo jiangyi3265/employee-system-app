@@ -4,7 +4,7 @@
 			<picker v-if="canPickRecipient" :range="recipients" range-key="label" @change="pickRecipient">
 				<view class="recipient-select">
 					<text class="recipient-label">接收人</text>
-					<text :class="toId ? 'recipient-name' : 'recipient-placeholder'">{{ recipientText }}</text>
+					<text :class="toId || toGroup ? 'recipient-name' : 'recipient-placeholder'">{{ recipientText }}</text>
 				</view>
 			</picker>
 			<view v-else class="recipient-select">
@@ -13,7 +13,7 @@
 			</view>
 		</view>
 		<view class="msg-list">
-			<view class="empty-lite" v-if="!messages.length">{{ toId ? '暂无消息，输入后发送' : '先选择接收人，再输入消息' }}</view>
+			<view class="empty-lite" v-if="!messages.length">{{ toId || toGroup ? '暂无消息，输入后发送' : '先选择接收人，再输入消息' }}</view>
 			<view class="msg-bubble" v-for="m in messages" :key="m._id" :class="{ mine: m.fromId === session.id }">
 				<text class="msg-name" v-if="m.fromName && m.fromId !== session.id">{{ m.fromName }}</text>
 				<text class="msg-text">{{ m.content }}</text>
@@ -30,7 +30,7 @@
 
 <script>
 import { getSession } from '@/utils/auth.js'
-import { threadMessages, postThread, markRead, manualThreadId } from '@/utils/message.js'
+import { threadMessages, postThread, postGroupMessage, markRead, manualThreadId } from '@/utils/message.js'
 import { fmtDate } from '@/utils/format.js'
 import { db } from '@/store/db.js'
 import { T, ROLE, ROLE_LABEL } from '@/store/schema.js'
@@ -42,6 +42,7 @@ export default {
 			toId: '',
 			toRole: '',
 			toName: '',
+			toGroup: '',
 			session: {},
 			messages: [],
 			text: '',
@@ -54,6 +55,7 @@ export default {
 			return this.compose || !this.threadId
 		},
 		recipientText() {
+			if (this.toGroup) return `群发：${this.toName}`
 			return this.toName ? `${this.roleLabel(this.toRole)}：${this.toName}` : '请选择接收人'
 		}
 	},
@@ -67,6 +69,7 @@ export default {
 			this.toId = q.to || ''
 			this.toRole = q.toRole || ''
 			this.toName = q.toName || ''
+			this.toGroup = q.toGroup || ''
 			this.compose = !!q.compose
 			this.resolveRecipient()
 			this.load()
@@ -94,13 +97,17 @@ export default {
 				this.recipients = employees
 				return
 			}
+			const groups = [
+				{ id: '__group_internal__', group: 'internal', role: 'group', name: '内部员工/管理员', label: '群发：内部员工/管理员' },
+				{ id: '__group_customers__', group: 'customers', role: 'group', name: '全部客户', label: '群发：全部客户' }
+			]
 			const customers = db.list(T.CUSTOMER, { approved: true }, 'name').filter((c) => c._id !== this.session.id).map((c) => ({
 				id: c._id,
 				role: ROLE.CUSTOMER,
 				name: c.name,
 				label: `客户：${c.name}${c.company ? ' · ' + c.company : ''}`
 			}))
-			this.recipients = employees.concat(customers)
+			this.recipients = groups.concat(employees, customers)
 		},
 		pickRecipient(e) {
 			const item = this.recipients[e.detail.value]
@@ -108,6 +115,8 @@ export default {
 			this.toId = item.id
 			this.toRole = item.role
 			this.toName = item.name
+			this.toGroup = item.group || ''
+			if (this.toGroup) this.threadId = ''
 		},
 		resolveRecipient() {
 			if (!this.toId) return
@@ -151,8 +160,23 @@ export default {
 		send() {
 			const content = this.text.trim()
 			if (!content) return
-			if (!this.toId) {
+			if (!this.toId && !this.toGroup) {
 				uni.showToast({ title: '请选择接收人', icon: 'none' })
+				return
+			}
+			if (this.toGroup) {
+				const sent = postGroupMessage(this.session, {
+					group: this.toGroup,
+					name: this.toName
+				}, content)
+				if (!sent.length) {
+					uni.showToast({ title: '暂无可群发对象', icon: 'none' })
+					return
+				}
+				this.text = ''
+				this.compose = false
+				uni.showToast({ title: `已群发${sent.length}人`, icon: 'success' })
+				setTimeout(() => uni.navigateBack(), 500)
 				return
 			}
 			if (this.toId === this.session.id) {
