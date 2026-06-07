@@ -76,10 +76,12 @@
 					<text class="t-title">选择产品</text>
 					<text class="inline-action" @click="goNewProduct">新增产品</text>
 				</view>
+				<input class="input-box product-search mb-s" v-model="productKw" placeholder="输入产品名称 / 规格 / 品牌筛选" @input="loadProducts" />
+				<text class="t-muted mb-s">共 {{ productTotal }} 个产品，当前显示 {{ products.length }} 个</text>
 				<view class="picker-item" v-for="p in products" :key="p._id" @click="selectProduct(p)">
 					<text>{{ p.name }} {{ p.spec }} · 采购价{{ money(p.purchasePrice) }}</text>
 				</view>
-				<view class="empty" v-if="!products.length">暂无产品</view>
+				<view class="empty" v-if="!products.length">{{ productKw ? '没有匹配的产品' : '暂无产品' }}</view>
 			</view>
 		</view>
 	</view>
@@ -102,6 +104,8 @@ export default {
 			showProdPicker: false,
 			suppliers: [],
 			products: [],
+			productKw: '',
+			productTotal: 0,
 			session: {}
 		}
 	},
@@ -154,8 +158,30 @@ export default {
 			this.showSupPicker = false
 		},
 		addProductNav() {
-			this.products = db.list(T.PRODUCT)
+			this.productKw = ''
+			this.loadProducts()
 			this.showProdPicker = true
+		},
+		loadProducts() {
+			const kw = this.productKw.trim().toLowerCase()
+			let list = db.list(T.PRODUCT, null, 'updateTime', true)
+			this.productTotal = list.length
+			if (kw) {
+				list = list.filter((p) => {
+					const text = [
+						p.name,
+						p.spec,
+						p.brand,
+						p.category,
+						p.attr1,
+						p.attr2
+					].filter(Boolean).join(' ').toLowerCase()
+					return text.indexOf(kw) >= 0
+				})
+				this.products = list.slice(0, 80)
+			} else {
+				this.products = list.slice(0, 30)
+			}
 		},
 		goNewProduct() {
 			this.showProdPicker = false
@@ -258,5 +284,6 @@ export default {
 .mini-ipt { width: 120rpx; background: #f7f8fa; border-radius: 8rpx; padding: 8rpx 12rpx; font-size: 26rpx; text-align: center; }
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999; display: flex; align-items: flex-end; }
 .modal-body { width: 100%; background: #fff; border-radius: 28rpx 28rpx 0 0; padding: 40rpx; max-height: 70vh; overflow-y: auto; }
+.product-search { height: 84rpx; min-height: 84rpx; line-height: normal; padding: 0 24rpx; }
 .picker-item { padding: 24rpx 0; border-bottom: 1rpx solid #f0f1f4; font-size: 30rpx; }
 </style>
