@@ -23,6 +23,26 @@ page {
 view, text, input, textarea, scroll-view { box-sizing: border-box; }
 input, textarea { min-width: 0; line-height: normal; }
 textarea { width: 100%; min-height: 140rpx; overflow: auto; }
+.uni-input-wrapper,
+.uni-input-form {
+	min-height: inherit;
+}
+.uni-input-input,
+.uni-input-placeholder {
+	line-height: inherit;
+	color: inherit;
+}
+.uni-textarea-wrapper {
+	min-height: inherit;
+	height: 100%;
+	overflow-y: auto;
+}
+.uni-textarea-textarea,
+.uni-textarea-placeholder {
+	line-height: inherit;
+	color: inherit;
+	word-break: break-all;
+}
 
 /* 主题色 */
 $primary: #2563eb;
@@ -132,6 +152,15 @@ input.quote-entry-input,
 input.price-input,
 input.reply-input {
 	line-height: normal;
+}
+input.support-input,
+input.quote-entry-input,
+input.expect-input,
+input.mini-ipt {
+	height: 72rpx;
+	min-height: 72rpx;
+	padding-top: 0;
+	padding-bottom: 0;
 }
 
 /* 空状态 */

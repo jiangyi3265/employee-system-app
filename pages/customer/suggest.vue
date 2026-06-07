@@ -5,7 +5,7 @@
 			<text class="t-title mb-m">投诉建议</text>
 			<view class="field-col">
 				<text class="field-label">内容</text>
-				<textarea class="input-box mt-s" v-model="content" placeholder="请输入您的建议或投诉" style="height:200rpx;" />
+				<textarea class="input-box mt-s multiline-input" v-model="content" placeholder="请输入您的建议或投诉"></textarea>
 			</view>
 			<button class="btn btn-block mt-m" @click="submit">提交</button>
 		</view>
@@ -58,6 +58,7 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.multiline-input { height: 220rpx; min-height: 220rpx; line-height: 1.6; color: #111827; }
 .sug-item { padding: 20rpx 0; border-bottom: 1rpx solid #f0f1f4; }
 .sug-item:last-child { border-bottom: none; }
 </style>

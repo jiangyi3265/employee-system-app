@@ -382,7 +382,7 @@ export default {
 .support-box { background: #f8fafc; border-radius: 16rpx; padding: 18rpx; border: 1rpx solid #edf1f6; }
 .support-row { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 12rpx 0; border-bottom: 1rpx dashed #e5e7eb; }
 .support-row:last-of-type { border-bottom: none; }
-.support-input { flex: 1; min-width: 0; background: #fff; border: 1rpx solid #e2e8f0; border-radius: 12rpx; padding: 10rpx 12rpx; font-size: 24rpx; }
+.support-input { flex: 1; min-width: 0; height: 72rpx; min-height: 72rpx; line-height: normal; background: #fff; border: 1rpx solid #e2e8f0; border-radius: 12rpx; padding: 0 16rpx; font-size: 28rpx; color: #111827; }
 .support-input.price { width: 120rpx; flex: none; text-align: center; }
 .add-quote-btn { height: 60rpx; min-width: 96rpx; padding: 0 16rpx; font-size: 24rpx; }
 .text-action { font-size: 26rpx; font-weight: 600; padding: 6rpx 12rpx; }
