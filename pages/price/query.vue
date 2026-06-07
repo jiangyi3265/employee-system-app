@@ -10,19 +10,15 @@
 			<input class="input-box search-ipt" v-model="productKw" placeholder="搜索商品名称 / 规格" />
 			<view class="field">
 				<text class="field-label">商品</text>
-				<picker :range="productOptions" :range-key="'label'" @change="pickProduct">
-					<view class="field-input picker-text">
-						<text :class="product ? '' : 't-muted'">{{ product ? product.name : '选择商品' }}</text>
-					</view>
-				</picker>
+				<view class="field-input picker-text" @click="openProductPicker">
+					<text :class="product ? '' : 't-muted'">{{ product ? product.name : '选择商品' }}</text>
+				</view>
 			</view>
 			<view class="field">
 				<text class="field-label">客户</text>
-				<picker :range="customerOptions" :range-key="'label'" @change="pickCustomer">
-					<view class="field-input picker-text">
-						<text :class="customerId ? '' : 't-muted'">{{ customer ? customer.name : '全部客户' }}</text>
-					</view>
-				</picker>
+				<view class="field-input picker-text" @click="openCustomerPicker">
+					<text :class="customerId ? '' : 't-muted'">{{ customer ? customer.name : '全部客户' }}</text>
+				</view>
 			</view>
 			<text class="t-muted mt-s">不选择客户时，展示该商品每个客户最近一条报价/成交记录。</text>
 		</view>
@@ -116,6 +112,40 @@
 			</view>
 			<view class="empty-lite" v-if="!competitorRows.length">暂无同行/供货商报价</view>
 		</view>
+
+		<view class="modal-mask" v-if="showProductPicker" @click="showProductPicker = false">
+			<view class="modal-body" @click.stop>
+				<text class="t-title mb-m">选择商品</text>
+				<input class="input-box modal-search mb-s" v-model="productKw" placeholder="输入商品名称 / 规格 / 品牌筛选" @input="loadProducts" />
+				<text class="t-muted mb-s">共 {{ productTotal }} 个商品，当前显示 {{ productRows.length }} 个</text>
+				<view class="picker-item" v-for="p in productRows" :key="p._id" @click="selectProduct(p)">
+					<view class="col flex1">
+						<text class="t-bold">{{ p.name }}</text>
+						<text class="t-muted mt-s">{{ p.spec || '-' }} · {{ p.brand || '-' }}</text>
+					</view>
+					<text class="t-price">{{ money(p.suggestPrice) }}</text>
+				</view>
+				<view class="empty" v-if="!productRows.length">{{ productKw ? '没有匹配的商品' : '暂无商品' }}</view>
+			</view>
+		</view>
+
+		<view class="modal-mask" v-if="showCustomerPicker" @click="showCustomerPicker = false">
+			<view class="modal-body" @click.stop>
+				<text class="t-title mb-m">选择客户</text>
+				<input class="input-box modal-search mb-s" v-model="customerKw" placeholder="输入客户名称 / 公司 / 手机筛选" @input="loadCustomers" />
+				<text class="t-muted mb-s">共 {{ customerTotal }} 个客户，当前显示 {{ customerRows.length }} 个</text>
+				<view class="picker-item" @click="selectCustomer(null)">
+					<text class="t-bold">全部客户</text>
+				</view>
+				<view class="picker-item" v-for="c in customerRows" :key="c._id" @click="selectCustomer(c)">
+					<view class="col flex1">
+						<text class="t-bold">{{ c.name }}</text>
+						<text class="t-muted mt-s">{{ c.company || c.phone || '-' }}</text>
+					</view>
+				</view>
+				<view class="empty" v-if="!customerRows.length && customerKw">没有匹配的客户</view>
+			</view>
+		</view>
 	</view>
 </template>
 
@@ -133,6 +163,13 @@ export default {
 			productId: '',
 			customerId: '',
 			productKw: '',
+			customerKw: '',
+			productRows: [],
+			customerRows: [],
+			productTotal: 0,
+			customerTotal: 0,
+			showProductPicker: false,
+			showCustomerPicker: false,
 			selectedCompetitorKeys: []
 		}
 	},
@@ -148,16 +185,6 @@ export default {
 		},
 		customer() {
 			return this.customerId ? db.get(T.CUSTOMER, this.customerId) : null
-		},
-		productOptions() {
-			const kw = this.productKw.trim()
-			const rows = kw
-				? this.products.filter((p) => `${p.name || ''}${p.spec || ''}${p.brand || ''}`.includes(kw))
-				: this.products
-			return rows.map((p) => ({ ...p, label: `${p.name} · ${p.spec || '-'}` }))
-		},
-		customerOptions() {
-			return [{ _id: '', label: '全部客户' }].concat(this.customers.map((c) => ({ ...c, label: `${c.name} · ${c.company || c.phone || '-'}` })))
 		},
 		dealRows() {
 			return this.latestQuoteRows('done', this.customerId)
@@ -218,19 +245,67 @@ export default {
 	methods: {
 		money(n) { return fmtMoney(n) },
 		fmt(t) { return fmtDate(t) },
-		pickProduct(e) {
-			const item = this.productOptions[e.detail.value]
+		openProductPicker() {
+			this.loadProducts()
+			this.showProductPicker = true
+		},
+		loadProducts() {
+			const kw = this.productKw.trim().toLowerCase()
+			let list = this.products
+			this.productTotal = list.length
+			if (kw) {
+				list = list.filter((p) => {
+					const text = [
+						p.name,
+						p.spec,
+						p.brand,
+						p.category,
+						p.attr1,
+						p.attr2
+					].filter(Boolean).join(' ').toLowerCase()
+					return text.indexOf(kw) >= 0
+				})
+			}
+			this.productRows = list.slice(0, kw ? 80 : 30)
+		},
+		selectProduct(item) {
 			this.productId = item ? item._id : ''
 			this.selectedCompetitorKeys = []
+			this.showProductPicker = false
 		},
-		pickCustomer(e) {
-			const item = this.customerOptions[e.detail.value]
+		openCustomerPicker() {
+			this.customerKw = ''
+			this.loadCustomers()
+			this.showCustomerPicker = true
+		},
+		loadCustomers() {
+			const kw = this.customerKw.trim().toLowerCase()
+			let list = this.customers
+			this.customerTotal = list.length
+			if (kw) {
+				list = list.filter((c) => {
+					const text = [
+						c.name,
+						c.company,
+						c.phone,
+						c.contact,
+						c.address,
+						c.grade
+					].filter(Boolean).join(' ').toLowerCase()
+					return text.indexOf(kw) >= 0
+				})
+			}
+			this.customerRows = list.slice(0, kw ? 80 : 30)
+		},
+		selectCustomer(item) {
 			this.customerId = item ? item._id : ''
+			this.showCustomerPicker = false
 		},
 		reset() {
 			this.productId = ''
 			this.customerId = ''
 			this.productKw = ''
+			this.customerKw = ''
 			this.selectedCompetitorKeys = []
 		},
 		clearCompetitors() {
@@ -324,6 +399,10 @@ export default {
 .price-row { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 18rpx 0; border-bottom: 1rpx dashed #edf1f6; }
 .price-row:last-child { border-bottom: none; }
 .empty-lite { padding: 24rpx 0; color: #98a2b3; font-size: 26rpx; text-align: center; }
+.modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.42); z-index: 999; display: flex; align-items: flex-end; }
+.modal-body { width: 100%; background: #fff; border-radius: 28rpx 28rpx 0 0; padding: 40rpx; max-height: 72vh; overflow-y: auto; }
+.modal-search { height: 84rpx; min-height: 84rpx; line-height: normal; padding: 0 24rpx; }
+.picker-item { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 24rpx 0; border-bottom: 1rpx solid #f0f1f4; font-size: 30rpx; }
 @media screen and (max-width: 420px) {
 	.price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	.competitor-grid { grid-template-columns: 1fr; }
