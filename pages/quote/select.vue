@@ -1,12 +1,42 @@
 <template>
 	<view class="page">
 		<global-stats />
-		<view class="search-bar row gap-s">
-			<input class="search-input" v-model="kw" placeholder="搜索产品名称 / 规格 / 品牌" @input="load" />
-			<button class="btn btn-sm query-btn" @click="goPriceQuery()">价格查询</button>
+		<view class="filter-panel">
+			<view class="row-between mb-s">
+				<text class="t-title" style="font-size:30rpx;">选择商品</text>
+				<text class="inline-action" @click="resetFilters">重置</text>
+			</view>
+			<input class="search-input" v-model="kw" placeholder="搜索商品名称 / 规格 / 品牌 / 分类" @input="load" />
+			<view class="filter-bar mt-s">
+				<picker class="filter-picker" :range="categoryPickerOptions" @change="pickCategoryFilter">
+					<view class="filter-select" :class="{ on: categoryFilter }">
+						<view class="col flex1">
+							<text class="filter-label">分类</text>
+							<text class="filter-value">{{ categoryFilter || '全部分类' }}</text>
+						</view>
+						<text class="filter-arrow">▼</text>
+					</view>
+				</picker>
+				<picker class="filter-picker" :range="brandPickerOptions" @change="pickBrandFilter">
+					<view class="filter-select" :class="{ on: brandFilter }">
+						<view class="col flex1">
+							<text class="filter-label">品牌</text>
+							<text class="filter-value">{{ brandFilter || '全部品牌' }}</text>
+						</view>
+						<text class="filter-arrow">▼</text>
+					</view>
+				</picker>
+			</view>
+			<view class="active-filter-row mt-s" v-if="categoryFilter || brandFilter">
+				<text class="active-filter" v-if="categoryFilter" @click="setCategory('')">分类：{{ categoryFilter }} ×</text>
+				<text class="active-filter" v-if="brandFilter" @click="setBrand('')">品牌：{{ brandFilter }} ×</text>
+			</view>
+			<view class="row-between mt-s">
+				<text class="t-muted product-count">共 {{ productTotal }} 个商品，当前显示 {{ list.length }} 个</text>
+				<button class="btn btn-sm query-btn" @click="goPriceQuery()">价格查询</button>
+			</view>
 		</view>
-		<text class="t-muted product-count">共 {{ productTotal }} 个产品，当前显示 {{ list.length }} 个</text>
-		<view class="empty" v-if="!list.length">{{ kw ? '没有匹配的产品' : '暂无产品' }}</view>
+		<view class="empty" v-if="!list.length">{{ kw || categoryFilter || brandFilter ? '没有匹配的商品' : '暂无商品' }}</view>
 		<view class="card prod" v-for="p in list" :key="p._id">
 			<view class="row-between">
 				<view class="col flex1">
@@ -106,11 +136,17 @@
 				<view class="mt-s">
 					<text class="t-bold" style="font-size:26rpx;">录入同行报价</text>
 					<view class="quote-entry mt-s">
-						<picker :range="competitors" :range-key="'name'" @change="pickCompetitor">
-							<view class="quote-entry-picker">
-								<text :class="selCompName ? '' : 't-muted'">{{ selCompName || '选择同行' }}</text>
+						<input class="quote-entry-input comp-name-input" v-model="compNameInput" placeholder="同行名称" @blur="resolveCompetitorName" />
+						<view class="comp-suggest-row" v-if="compNameInput && matchedCompetitors.length">
+							<text class="comp-suggest" v-for="c in matchedCompetitors" :key="c._id" @click="selectCompetitor(c)">{{ c.name }}</text>
+						</view>
+						<view class="new-comp-box" v-if="needNewCompetitorInfo">
+							<text class="t-muted">未找到同行档案，请补基础信息</text>
+							<view class="new-comp-grid mt-s">
+								<input class="quote-entry-input" v-model="compContactInput" placeholder="联系人" />
+								<input class="quote-entry-input" v-model="compPhoneInput" placeholder="电话" />
 							</view>
-						</picker>
+						</view>
 						<input class="quote-entry-input" type="digit" v-model.number="compInputPrice" placeholder="报价" />
 						<button class="btn btn-sm quote-entry-btn" @click="addCompQuote(p)">录入</button>
 					</view>
@@ -134,14 +170,40 @@ import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtMoney, fmtDate, toast } from '@/utils/format.js'
 import { recentDealPrices, competitorQuotes, recommendQuote, isQuotableQuoteItem, calcPrices, round2 } from '@/utils/pricing.js'
+import { ensureCompetitorRecord, filterCompetitors, findCompetitorByName, listCompetitors } from '@/utils/competitor.js'
 
 export default {
 	data() {
 		return {
 			list: [], kw: '', productTotal: 0, orderId: '', focusedProductId: '', customerId: '', contextCustomerLabel: '',
+			categoryFilter: '', brandFilter: '',
 			expanded: '',
 			recentDeals: [], recentQuotes: [], compQuotes: [], purchaseRows: [], supplierLatest: [], rec: null, customerExpect: null,
-			competitors: [], selCompId: '', selCompName: '', compInputPrice: ''
+			competitors: [], selCompId: '', selCompName: '', compNameInput: '', compContactInput: '', compPhoneInput: '', compInputPrice: ''
+		}
+	},
+	computed: {
+		allProducts() {
+			return db.list(T.PRODUCT, null, 'updateTime', true)
+		},
+		categoryOptions() {
+			return this.uniqueOptions(this.allProducts.map((p) => p.category || p.attr1))
+		},
+		brandOptions() {
+			return this.uniqueOptions(this.allProducts.map((p) => p.brand))
+		},
+		categoryPickerOptions() {
+			return ['全部分类'].concat(this.categoryOptions)
+		},
+		brandPickerOptions() {
+			return ['全部品牌'].concat(this.brandOptions)
+		},
+		matchedCompetitors() {
+			return filterCompetitors(this.compNameInput, 5)
+		},
+		needNewCompetitorInfo() {
+			const name = this.compNameInput.trim()
+			return !!name && !findCompetitorByName(name)
 		}
 	},
 	onLoad(q) {
@@ -156,7 +218,7 @@ export default {
 				this.contextCustomerLabel = order.customerName || ''
 			}
 		}
-		this.competitors = db.list(T.COMPETITOR)
+		this.refreshCompetitors()
 		this.load()
 		if (this.focusedProductId) {
 			const p = this.list.find((item) => item._id === this.focusedProductId) || db.get(T.PRODUCT, this.focusedProductId)
@@ -196,10 +258,49 @@ export default {
 			const vm = prev && (prev.$vm || prev)
 			return vm && vm.form ? vm.form.customerName : ''
 		},
+		uniqueOptions(values) {
+			const seen = {}
+			const list = []
+			values.forEach((value) => {
+				const text = String(value || '').trim()
+				if (!text || seen[text]) return
+				seen[text] = true
+				list.push(text)
+			})
+			return list
+		},
+		setCategory(value) {
+			this.categoryFilter = value
+			this.load()
+		},
+		setBrand(value) {
+			this.brandFilter = value
+			this.load()
+		},
+		pickCategoryFilter(e) {
+			const index = Number(e.detail.value) || 0
+			this.setCategory(index ? this.categoryOptions[index - 1] : '')
+		},
+		pickBrandFilter(e) {
+			const index = Number(e.detail.value) || 0
+			this.setBrand(index ? this.brandOptions[index - 1] : '')
+		},
+		resetFilters() {
+			this.kw = ''
+			this.categoryFilter = ''
+			this.brandFilter = ''
+			this.load()
+		},
 		load() {
-			let list = db.list(T.PRODUCT, null, 'updateTime', true)
+			let list = this.allProducts
 			this.productTotal = list.length
 			const kw = this.kw.trim().toLowerCase()
+			if (this.categoryFilter) {
+				list = list.filter((p) => [p.category, p.attr1, p.attr2].filter(Boolean).includes(this.categoryFilter))
+			}
+			if (this.brandFilter) {
+				list = list.filter((p) => p.brand === this.brandFilter)
+			}
 			if (kw) {
 				list = list.filter((p) => {
 					const text = [
@@ -302,23 +403,57 @@ export default {
 		},
 		pickCompetitor(e) {
 			const c = this.competitors[e.detail.value]
-			if (c) { this.selCompId = c._id; this.selCompName = c.name }
+			if (c) this.selectCompetitor(c)
+		},
+		refreshCompetitors() {
+			this.competitors = listCompetitors()
+		},
+		selectCompetitor(c) {
+			if (!c) return
+			this.selCompId = c._id
+			this.selCompName = c.name
+			this.compNameInput = c.name
+			this.compContactInput = c.contact || ''
+			this.compPhoneInput = c.phone || ''
+		},
+		resolveCompetitorName() {
+			const c = findCompetitorByName(this.compNameInput)
+			if (c) this.selectCompetitor(c)
+			else {
+				this.selCompId = ''
+				this.selCompName = this.compNameInput.trim()
+			}
+		},
+		resetCompQuoteForm() {
+			this.selCompId = ''
+			this.selCompName = ''
+			this.compNameInput = ''
+			this.compContactInput = ''
+			this.compPhoneInput = ''
+			this.compInputPrice = ''
 		},
 		addCompQuote(p) {
-			if (!this.selCompId) return toast('请选择同行')
+			const result = ensureCompetitorRecord({
+				name: this.compNameInput || this.selCompName,
+				contact: this.compContactInput,
+				phone: this.compPhoneInput
+			})
+			if (!result.ok) return toast(result.msg)
+			const competitor = result.record
 			if (!this.compInputPrice) return toast('请输入报价')
 			const customerId = this.contextCustomerId()
 			const customerName = this.contextCustomerName()
 			db.insert(T.COMP_QUOTE, {
 				productId: p._id,
-				competitorId: this.selCompId,
-				competitorName: this.selCompName,
+				competitorId: competitor._id,
+				competitorName: competitor.name,
 				price: Number(this.compInputPrice),
 				sourceCustomerId: customerId,
 				sourceCustomerName: customerName
 			})
-			toast('已录入', 'success')
-			this.selCompId = ''; this.selCompName = ''; this.compInputPrice = ''
+			this.refreshCompetitors()
+			toast(result.created ? '已新增同行并录入报价' : '已录入', 'success')
+			this.resetCompQuoteForm()
 			this.compQuotes = competitorQuotes(p._id)
 			this.calcRecommend(p)
 		},
@@ -346,10 +481,19 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.search-bar { padding: 20rpx 24rpx; background: #fff; }
-.search-input { flex: 1; min-width: 0; background: #f3f4f6; border-radius: 999rpx; padding: 18rpx 32rpx; font-size: 28rpx; }
-.query-btn { width: 150rpx; padding: 0 12rpx; }
-.product-count { display: block; padding: 12rpx 24rpx 0; background: #fff; }
+.filter-panel { padding: 20rpx 24rpx; background: #fff; }
+.search-input { width: 100%; min-height: 82rpx; line-height: 82rpx; background: #f3f4f6; border-radius: 18rpx; padding: 0 28rpx; font-size: 28rpx; box-sizing: border-box; }
+.filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12rpx; }
+.filter-picker { min-width: 0; }
+.filter-select { min-height: 82rpx; display: flex; flex-direction: row; align-items: center; gap: 12rpx; background: #f8fafc; border: 1rpx solid #e2e8f0; border-radius: 16rpx; padding: 12rpx 18rpx; box-sizing: border-box; }
+.filter-select.on { border-color: #2563eb; background: #eff6ff; }
+.filter-label { display: block; color: #6b7280; font-size: 22rpx; line-height: 1.2; }
+.filter-value { display: block; margin-top: 4rpx; color: #111827; font-size: 26rpx; font-weight: 700; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-arrow { color: #94a3b8; font-size: 18rpx; flex: none; }
+.active-filter-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10rpx; }
+.active-filter { padding: 8rpx 14rpx; border-radius: 999rpx; background: #eef2ff; color: #2563eb; font-size: 23rpx; font-weight: 600; }
+.query-btn { width: 150rpx; padding: 0 12rpx; flex: none; }
+.product-count { flex: 1; min-width: 0; }
 .prod { margin: 16rpx 24rpx; }
 .rec-box { background: #eff6ff; border-radius: 12rpx; padding: 16rpx 20rpx; }
 .purchase-box { background: #f8fafc; border: 1rpx solid #e6edf6; border-radius: 16rpx; padding: 18rpx; }
@@ -369,5 +513,10 @@ export default {
 .quote-entry-picker, .quote-entry-input { height: 68rpx; line-height: 68rpx; background: #f8fafc; border: 1rpx solid #e2e8f0; border-radius: 14rpx; padding: 0 18rpx; font-size: 25rpx; box-sizing: border-box; }
 .quote-entry-picker { min-width: 180rpx; max-width: 240rpx; }
 .quote-entry-input { flex: 1; min-width: 150rpx; text-align: center; }
+.comp-name-input { flex-basis: 100%; text-align: left; }
+.comp-suggest-row { display: flex; flex-direction: row; gap: 10rpx; width: 100%; overflow-x: auto; }
+.comp-suggest { flex: none; padding: 9rpx 16rpx; border-radius: 999rpx; background: #eff6ff; color: #2563eb; font-size: 23rpx; }
+.new-comp-box { width: 100%; background: #fff7ed; border: 1rpx solid #fed7aa; border-radius: 14rpx; padding: 14rpx; box-sizing: border-box; }
+.new-comp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12rpx; }
 .quote-entry-btn { height: 68rpx; min-width: 92rpx; padding: 0 20rpx; font-size: 25rpx; }
 </style>

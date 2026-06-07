@@ -122,9 +122,23 @@ export default {
 			if (rec) this.form = { ...rec }
 		} else {
 			this.initForm()
+			this.applyQuerySeed(q)
 		}
 	},
 	methods: {
+		decodeQuery(value) {
+			try {
+				return decodeURIComponent(value || '')
+			} catch (e) {
+				return value || ''
+			}
+		},
+		applyQuerySeed(q) {
+			const fields = ['name', 'contact', 'phone', 'address']
+			fields.forEach((key) => {
+				if (q[key]) this.form[key] = this.decodeQuery(q[key]).trim()
+			})
+		},
 		initForm() {
 			if (this.type === 'customer') {
 				this.form = { name: '', phone: '', password: '', company: '', grade: 'C', pool: 'public', ownerId: '', ownerName: '', approved: false }

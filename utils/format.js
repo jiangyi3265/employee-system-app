@@ -36,11 +36,12 @@ export function toast(title, icon = 'none') {
 	uni.showToast({ title, icon })
 }
 
-export function confirmDialog(content, title = '提示') {
+export function confirmDialog(content, title = '提示', options = {}) {
 	return new Promise((resolve) => {
 		uni.showModal({
 			title,
 			content,
+			...options,
 			success: (res) => resolve(res.confirm),
 			fail: () => resolve(false)
 		})

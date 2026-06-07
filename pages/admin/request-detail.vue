@@ -73,6 +73,7 @@ import { sendToUser, notifyEmployees } from '@/utils/message.js'
 import { recommendQuote, recentDealPrices, competitorQuotes, quoteAuditPatch } from '@/utils/pricing.js'
 import { refreshCustomerOwner, refreshOrderDealStatus } from '@/utils/stats.js'
 import { addOrderSystemFollow } from '@/utils/follow.js'
+import { archiveEditUrl, findSupplierByName } from '@/utils/competitor.js'
 
 export default {
 	data() { return { id: '', order: {}, items: [], session: {} } },
@@ -179,21 +180,34 @@ export default {
 			it._rec = this.buildRecommendation(it)
 			it.quotePrice = it._rec.price
 		},
-		saveSupplierQuote(it, quote) {
+		async saveSupplierQuote(it, quote) {
 			const name = (quote.name || '供货商').trim()
 			const price = Number(quote.price) || 0
 			if (!it.productId) return toast('商品信息不完整，无法保存')
 			if (price <= 0) return toast('供货商报价无效')
+			const supplier = findSupplierByName(name)
+			if (!supplier) {
+				const ok = await confirmDialog(`供应商不存在：${name}，是否添加？`, '供应商不存在', {
+					confirmText: '是',
+					cancelText: '否'
+				})
+				if (ok) {
+					uni.navigateTo({ url: archiveEditUrl('supplier', { name }) })
+				}
+				return
+			}
 			const exists = db.list(T.COMP_QUOTE, { productId: it.productId }).find((row) => {
 				const rowName = row.competitorName || row.supplierName || ''
-				return rowName === name && Number(row.price) === price
+				const sameSupplier = row.supplierId ? row.supplierId === supplier._id : rowName === supplier.name || rowName === name
+				return sameSupplier && Number(row.price) === price
 			})
 			if (exists) return toast('报价库中已有相同记录')
 			db.insert(T.COMP_QUOTE, {
 				productId: it.productId,
 				competitorId: '',
-				competitorName: name,
-				supplierName: name,
+				competitorName: supplier.name,
+				supplierId: supplier._id,
+				supplierName: supplier.name,
 				price,
 				source: 'customerSupplierQuote',
 				sourceRequestOrderId: this.id,
