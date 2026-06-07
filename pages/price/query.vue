@@ -55,6 +55,7 @@
 				>
 					<text class="chip-name">{{ row.name }}</text>
 					<text class="chip-price">{{ money(row.price) }}</text>
+					<text class="chip-sub" v-if="row.customerName">{{ row.customerName }}</text>
 					<text class="chip-date">{{ fmt(row.time) }}</text>
 				</view>
 			</view>
@@ -197,9 +198,18 @@ export default {
 		},
 		competitorRows() {
 			if (!this.productId) return []
-			const rows = db.list(T.COMP_QUOTE, { productId: this.productId })
+			let rows = db.list(T.COMP_QUOTE, { productId: this.productId })
 				.map((row) => this.enrichCompetitor(row))
-				.sort((a, b) => b.time - a.time)
+				.concat(this.requestSupplierQuoteRows())
+			if (this.customerId) {
+				rows = rows.filter((row) => !row.customerId || row.customerId === this.customerId)
+			}
+			rows = rows.sort((a, b) => {
+				const ap = this.customerId && a.customerId === this.customerId ? 1 : 0
+				const bp = this.customerId && b.customerId === this.customerId ? 1 : 0
+				if (ap !== bp) return bp - ap
+				return b.time - a.time
+			})
 			return this.latestBy(rows, (row) => row.key)
 		},
 		selectedCompetitorRows() {
@@ -336,6 +346,38 @@ export default {
 			})
 			return list
 		},
+		requestSupplierQuoteRows() {
+			if (!this.productId) return []
+			const orders = {}
+			const rows = []
+			db.list(T.REQUEST_ITEM, { productId: this.productId }).forEach((item) => {
+				const supplierQuotes = Array.isArray(item.supplierQuotes) ? item.supplierQuotes : []
+				if (!supplierQuotes.length) return
+				const orderId = item.requestOrderId || ''
+				if (orderId && !orders[orderId]) orders[orderId] = db.get(T.REQUEST_ORDER, orderId) || {}
+				const order = orderId ? orders[orderId] : {}
+				supplierQuotes.forEach((quote, index) => {
+					const name = (quote.name || quote.supplierName || '供货商').trim()
+					const price = Number(quote.price) || 0
+					if (!price) return
+					rows.push(this.enrichCompetitor({
+						_id: `request_supplier_${item._id || orderId}_${index}_${name}`,
+						productId: item.productId,
+						competitorName: name,
+						supplierName: name,
+						price,
+						source: 'customerSupplierQuote',
+						sourceRequestOrderId: orderId,
+						sourceRequestItemId: item._id,
+						sourceCustomerId: order.customerId || item.customerId || '',
+						sourceCustomerName: order.customerName || item.customerName || '',
+						createTime: quote.createTime || item.updateTime || item.createTime || order.updateTime || order.createTime,
+						updateTime: quote.updateTime || item.updateTime || item.createTime || order.updateTime || order.createTime
+					}))
+				})
+			})
+			return rows
+		},
 		enrichQuote(row) {
 			const customer = row.customerName || this.nameOf(T.CUSTOMER, row.customerId) || '未知客户'
 			const employee = row.employeeName || this.nameOf(T.EMPLOYEE, row.employeeId) || '未知员工'
@@ -353,11 +395,16 @@ export default {
 		enrichCompetitor(row) {
 			const name = row.competitorName || row.supplierName || this.nameOf(T.COMPETITOR, row.competitorId) || this.nameOf(T.SUPPLIER, row.supplierId) || '未知供货商'
 			const key = row.competitorId || row.supplierId || name
+			const customerId = row.sourceCustomerId || row.customerId || ''
+			const customerName = row.sourceCustomerName || row.customerName || this.nameOf(T.CUSTOMER, customerId)
+			const sourceLabel = row.source === 'customerSupplierQuote' ? '客户提供供货商报价' : '同行/供货商'
 			return {
 				...row,
 				key,
 				name,
-				sub: row.source === 'customerSupplierQuote' ? '客户提供供货商报价' : '同行/供货商',
+				customerId,
+				customerName,
+				sub: [sourceLabel, customerName].filter(Boolean).join(' · '),
 				price: Number(row.price) || 0,
 				time: Number(row.createTime || row.updateTime) || 0
 			}
@@ -390,10 +437,11 @@ export default {
 .price-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10rpx; background: #f8fafc; border-radius: 14rpx; padding: 14rpx; }
 .price-num { display: block; margin-top: 6rpx; color: #111827; font-size: 24rpx; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .competitor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12rpx; }
-.competitor-chip { min-height: 110rpx; border: 1rpx solid #dbe4f0; background: #f8fafc; border-radius: 14rpx; padding: 14rpx; display: flex; flex-direction: column; justify-content: center; gap: 4rpx; }
+.competitor-chip { min-height: 126rpx; border: 1rpx solid #dbe4f0; background: #f8fafc; border-radius: 14rpx; padding: 14rpx; display: flex; flex-direction: column; justify-content: center; gap: 4rpx; }
 .competitor-chip.on { border-color: #2563eb; background: #eff6ff; }
 .chip-name { color: #111827; font-size: 25rpx; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip-price { color: #ef4444; font-size: 28rpx; font-weight: 800; }
+.chip-sub { color: #6b7280; font-size: 22rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip-date { color: #98a2b3; font-size: 21rpx; }
 .summary-box { border: 1rpx solid #bfdbfe; background: #eff6ff; border-radius: 14rpx; padding: 16rpx; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 16rpx; }
 .price-row { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 18rpx 0; border-bottom: 1rpx dashed #edf1f6; }

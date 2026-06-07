@@ -1,12 +1,10 @@
 <template>
 	<view class="page chat-page">
 		<view class="recipient-panel">
-			<picker v-if="canPickRecipient" :range="recipients" range-key="label" @change="pickRecipient">
-				<view class="recipient-select">
-					<text class="recipient-label">接收人</text>
-					<text :class="toId || toGroup ? 'recipient-name' : 'recipient-placeholder'">{{ recipientText }}</text>
-				</view>
-			</picker>
+			<view v-if="canPickRecipient" class="recipient-select" @click="openRecipientPicker">
+				<text class="recipient-label">接收人</text>
+				<text :class="toId || toGroup ? 'recipient-name' : 'recipient-placeholder'">{{ recipientText }}</text>
+			</view>
 			<view v-else class="recipient-select">
 				<text class="recipient-label">接收人</text>
 				<text class="recipient-name">{{ recipientText }}</text>
@@ -22,8 +20,38 @@
 		</view>
 
 		<view class="input-bar">
+			<view class="more-btn" v-if="canGroupSend" @click="showActionMenu = true">···</view>
 			<input class="chat-input" v-model="text" placeholder="输入消息" @confirm="send" />
 			<button class="btn btn-sm" @click="send">发送</button>
+		</view>
+
+		<view class="modal-mask" v-if="showRecipientPicker" @click="showRecipientPicker = false">
+			<view class="modal-body" @click.stop>
+				<text class="t-title mb-m">选择接收人</text>
+				<input class="input-box modal-search mb-s" v-model="recipientKw" placeholder="输入姓名 / 公司 / 手机筛选" />
+				<view class="recipient-row" v-for="r in recipientRows" :key="r.id" @click="selectRecipient(r)">
+					<view class="col flex1">
+						<text class="recipient-row-title">{{ r.label }}</text>
+						<text class="t-muted mt-s" v-if="r.sub">{{ r.sub }}</text>
+					</view>
+				</view>
+				<view class="empty" v-if="!recipientRows.length">{{ recipientKw ? '没有匹配的接收人' : '暂无接收人' }}</view>
+			</view>
+		</view>
+
+		<view class="modal-mask" v-if="showActionMenu" @click="showActionMenu = false">
+			<view class="modal-body action-sheet" @click.stop>
+				<text class="t-title mb-m">群发消息</text>
+				<view class="action-row" @click="composeGroup('internal')">
+					<text class="action-title">内部群发</text>
+					<text class="t-muted">发送给内部员工和管理员</text>
+				</view>
+				<view class="action-row" @click="composeGroup('customers')">
+					<text class="action-title">全部客户</text>
+					<text class="t-muted">发送给所有已审核客户</text>
+				</view>
+				<view class="action-cancel" @click="showActionMenu = false">取消</view>
+			</view>
 		</view>
 	</view>
 </template>
@@ -47,16 +75,39 @@ export default {
 			messages: [],
 			text: '',
 			recipients: [],
-			compose: false
+			compose: false,
+			recipientKw: '',
+			showRecipientPicker: false,
+			showActionMenu: false
 		}
 	},
 	computed: {
 		canPickRecipient() {
 			return this.compose || !this.threadId
 		},
+		canGroupSend() {
+			return this.session.role === ROLE.ADMIN || this.session.role === ROLE.EMPLOYEE
+		},
 		recipientText() {
 			if (this.toGroup) return `群发：${this.toName}`
 			return this.toName ? `${this.roleLabel(this.toRole)}：${this.toName}` : '请选择接收人'
+		},
+		recipientRows() {
+			const kw = this.recipientKw.trim().toLowerCase()
+			let rows = this.recipients
+			if (kw) {
+				rows = rows.filter((item) => {
+					const text = [
+						item.label,
+						item.name,
+						item.phone,
+						item.company,
+						item.sub
+					].filter(Boolean).join(' ').toLowerCase()
+					return text.indexOf(kw) >= 0
+				})
+			}
+			return rows.slice(0, kw ? 100 : 40)
 		}
 	},
 	onLoad(q) {
@@ -90,6 +141,8 @@ export default {
 					id: e._id,
 					role,
 					name: e.name,
+					phone: e.phone || '',
+					sub: e.phone || '',
 					label: `${ROLE_LABEL[role] || '员工'}：${e.name}${e.phone ? ' · ' + e.phone : ''}`
 				}
 			})
@@ -98,25 +151,52 @@ export default {
 				return
 			}
 			const groups = [
-				{ id: '__group_internal__', group: 'internal', role: 'group', name: '内部员工/管理员', label: '群发：内部员工/管理员' },
-				{ id: '__group_customers__', group: 'customers', role: 'group', name: '全部客户', label: '群发：全部客户' }
+				{ id: '__group_internal__', group: 'internal', role: 'group', name: '内部员工/管理员', label: '群发：内部员工/管理员', sub: '内部员工和管理员' },
+				{ id: '__group_customers__', group: 'customers', role: 'group', name: '全部客户', label: '群发：全部客户', sub: '所有已审核客户' }
 			]
 			const customers = db.list(T.CUSTOMER, { approved: true }, 'name').filter((c) => c._id !== this.session.id).map((c) => ({
 				id: c._id,
 				role: ROLE.CUSTOMER,
 				name: c.name,
+				phone: c.phone || '',
+				company: c.company || '',
+				sub: [c.company, c.phone].filter(Boolean).join(' · '),
 				label: `客户：${c.name}${c.company ? ' · ' + c.company : ''}`
 			}))
 			this.recipients = groups.concat(employees, customers)
 		},
+		openRecipientPicker() {
+			this.recipientKw = ''
+			this.showRecipientPicker = true
+		},
 		pickRecipient(e) {
 			const item = this.recipients[e.detail.value]
+			this.selectRecipient(item)
+		},
+		selectRecipient(item) {
 			if (!item) return
-			this.toId = item.id
+			this.toId = item.group ? '' : item.id
 			this.toRole = item.role
 			this.toName = item.name
 			this.toGroup = item.group || ''
-			if (this.toGroup) this.threadId = ''
+			if (this.toGroup) {
+				this.threadId = ''
+				this.messages = []
+			}
+			this.showRecipientPicker = false
+		},
+		composeGroup(group) {
+			const target = group === 'customers'
+				? { group: 'customers', name: '全部客户' }
+				: { group: 'internal', name: '内部员工/管理员' }
+			this.showActionMenu = false
+			this.compose = true
+			this.threadId = ''
+			this.toId = ''
+			this.toRole = 'group'
+			this.toName = target.name
+			this.toGroup = target.group
+			this.messages = []
 		},
 		resolveRecipient() {
 			if (!this.toId) return
@@ -213,5 +293,15 @@ export default {
 .msg-bubble.mine .msg-text { background: #2563eb; color: #fff; }
 .msg-time { font-size: 20rpx; color: #9ca3af; display: block; margin-top: 4rpx; }
 .input-bar { display: flex; align-items: center; gap: 16rpx; padding: 16rpx 24rpx; padding-bottom: calc(16rpx + env(safe-area-inset-bottom)); background: #fff; border-top: 1rpx solid #f0f1f4; }
+.more-btn { width: 72rpx; height: 72rpx; border-radius: 50%; background: #f3f4f6; color: #111827; display: flex; align-items: center; justify-content: center; font-size: 34rpx; font-weight: 800; letter-spacing: 0; flex: none; }
 .chat-input { flex: 1; height: 72rpx; min-height: 72rpx; line-height: normal; background: #f7f8fa; border-radius: 999rpx; padding: 0 24rpx; font-size: 28rpx; }
+.modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.42); z-index: 999; display: flex; align-items: flex-end; }
+.modal-body { width: 100%; background: #fff; border-radius: 28rpx 28rpx 0 0; padding: 40rpx; max-height: 72vh; overflow-y: auto; box-sizing: border-box; }
+.modal-search { height: 84rpx; min-height: 84rpx; line-height: normal; padding: 0 24rpx; }
+.recipient-row { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 24rpx 0; border-bottom: 1rpx solid #f0f1f4; }
+.recipient-row-title { color: #111827; font-size: 30rpx; font-weight: 700; }
+.action-sheet { padding-bottom: calc(40rpx + env(safe-area-inset-bottom)); }
+.action-row { padding: 26rpx 0; border-bottom: 1rpx solid #f0f1f4; }
+.action-title { display: block; color: #111827; font-size: 32rpx; font-weight: 800; margin-bottom: 8rpx; }
+.action-cancel { margin-top: 24rpx; height: 84rpx; border-radius: 16rpx; background: #f3f4f6; color: #111827; font-size: 30rpx; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 </style>
