@@ -4,6 +4,7 @@ import { pullAll, pushTables } from './remote.js'
 
 const TABLES = Object.values(T)
 const LAST_PULL_KEY = 'sqms_last_pull_time'
+const PRESERVE_WHEN_REMOTE_EMPTY = new Set([T.EMPLOYEE])
 
 let enabled = false
 let timer = null
@@ -22,6 +23,7 @@ export function isRemoteSyncEnabled() {
 export async function syncFromRemote() {
 	const res = await pullAll()
 	const data = res.data || {}
+	const preservedTables = {}
 	const remoteCount = TABLES.reduce((count, table) => {
 		return count + (Array.isArray(data[table]) ? data[table].length : 0)
 	}, 0)
@@ -31,9 +33,14 @@ export async function syncFromRemote() {
 	}
 	TABLES.forEach((table) => {
 		if (Array.isArray(data[table])) {
+			if (PRESERVE_WHEN_REMOTE_EMPTY.has(table) && data[table].length === 0 && db.count(table) > 0) {
+				preservedTables[table] = db.list(table)
+				return
+			}
 			db.setAll(table, data[table], true)
 		}
 	})
+	data.__preservedTables = preservedTables
 	uni.setStorageSync(LAST_PULL_KEY, data.serverTime || Date.now())
 	return data
 }
@@ -77,6 +84,8 @@ export async function bootstrapRemoteSync() {
 		}, 0)
 		if (remoteCount === 0) {
 			await syncAllToRemote()
+		} else if (data.__preservedTables && Object.keys(data.__preservedTables).length) {
+			await pushTables(data.__preservedTables)
 		}
 		return true
 	} catch (e) {
