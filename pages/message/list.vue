@@ -7,7 +7,11 @@
 				<view class="tab-item" :class="{ on: tab === 'unread' }" @click="tab = 'unread'; applyFilter()">未读</view>
 				<view class="tab-item" :class="{ on: tab === 'read' }" @click="tab = 'read'; applyFilter()">已读</view>
 			</view>
-			<button class="btn btn-sm compose-btn" @click="compose">写信</button>
+			<view class="toolbar-actions">
+				<button class="btn btn-sm compose-btn" @click="compose">写信</button>
+				<button class="btn btn-sm group-btn" v-if="canGroupSend" @click="composeInternal">内部群发</button>
+				<button class="btn btn-sm group-btn" v-if="canGroupSend" @click="composeCustomers">客户群发</button>
+			</view>
 		</view>
 		<view class="empty" v-if="!list.length">暂无消息</view>
 		<view class="card-tight card msg" v-for="m in list" :key="m._id" @click="open(m)">
@@ -35,6 +39,11 @@ import { ROLE } from '@/store/schema.js'
 
 export default {
 	data() { return { session: {}, all: [], list: [], tab: 'all' } },
+	computed: {
+		canGroupSend() {
+			return this.session.role === ROLE.ADMIN || this.session.role === ROLE.EMPLOYEE
+		}
+	},
 	onShow() {
 		const s = getSession()
 		if (!s) { uni.redirectTo({ url: '/pages/login/login' }); return }
@@ -53,6 +62,16 @@ export default {
 		},
 		compose() {
 			uni.navigateTo({ url: '/pages/message/chat?compose=1' })
+		},
+		composeInternal() {
+			uni.navigateTo({
+				url: '/pages/message/chat?compose=1&toGroup=internal&toName=' + encodeURIComponent('内部员工/管理员')
+			})
+		},
+		composeCustomers() {
+			uni.navigateTo({
+				url: '/pages/message/chat?compose=1&toGroup=customers&toName=' + encodeURIComponent('全部客户')
+			})
 		},
 		open(m) {
 			if (!m.read) { markRead(m._id); m.read = true; this.applyFilter() }
@@ -81,9 +100,11 @@ export default {
 <style lang="scss" scoped>
 .msg { margin: 16rpx 24rpx; }
 .dot { width: 16rpx; height: 16rpx; border-radius: 50%; background: #ef4444; }
-.message-toolbar { display: flex; align-items: center; gap: 16rpx; background: #fff; padding: 20rpx 24rpx; border-bottom: 1rpx solid #edf1f6; }
+.message-toolbar { display: flex; align-items: center; gap: 16rpx; background: #fff; padding: 20rpx 24rpx; border-bottom: 1rpx solid #edf1f6; flex-wrap: wrap; }
 .tabs { display: flex; flex: 1; gap: 16rpx; }
 .tab-item { padding: 12rpx 28rpx; border-radius: 999rpx; font-size: 26rpx; color: #6b7280; background: #f3f4f6; }
 .tab-item.on { background: #2563eb; color: #fff; font-weight: 600; }
 .compose-btn { flex: none; margin: 0; }
+.toolbar-actions { display: flex; align-items: center; gap: 10rpx; flex-wrap: wrap; }
+.group-btn { flex: none; margin: 0; background: #eef2ff; color: #2563eb; padding: 0 18rpx; }
 </style>
