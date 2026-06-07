@@ -1,0 +1,169 @@
+name: Manage gl.oksja.cn certificate
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Diagnose or issue and bind the certificate
+        required: true
+        default: diagnose
+        type: choice
+        options:
+          - diagnose
+          - issue
+
+env:
+  DOMAIN: gl.oksja.cn
+  WEBROOT: /www/wwwroot/gl.oksja.cn
+  NGINX_CONF: /www/server/panel/vhost/nginx/gl.oksja.cn.conf
+  BT_CERT_DIR: /www/server/panel/vhost/cert/gl.oksja.cn
+  CERT_EMAIL: admin@oksja.cn
+
+jobs:
+  certificate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Manage certificate on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          script_stop: false
+          envs: DOMAIN,WEBROOT,NGINX_CONF,BT_CERT_DIR,CERT_EMAIL
+          script: |
+            set -e
+
+            MODE="${{ inputs.mode }}"
+            DOMAIN="$DOMAIN"
+            WEBROOT="$WEBROOT"
+            CONF="$NGINX_CONF"
+            CERT_DIR="$BT_CERT_DIR"
+            CERT_EMAIL="$CERT_EMAIL"
+
+            echo "mode=$MODE"
+            echo "domain=$DOMAIN"
+            echo "webroot=$WEBROOT"
+            echo "nginx_conf=$CONF"
+
+            if [ ! -f "$CONF" ]; then
+              echo "Nginx config not found: $CONF"
+              exit 1
+            fi
+            if [ ! -d "$WEBROOT" ]; then
+              echo "Webroot not found: $WEBROOT"
+              exit 1
+            fi
+
+            print_diagnose() {
+              echo "== system =="
+              whoami || true
+              hostname || true
+              echo "== tools =="
+              command -v nginx || true
+              command -v certbot || true
+              [ -x /root/.acme.sh/acme.sh ] && echo "/root/.acme.sh/acme.sh" || true
+              [ -x /www/server/panel/pyenv/bin/python ] && echo "/www/server/panel/pyenv/bin/python" || true
+              echo "== nginx ssl lines =="
+              grep -nE "server_name|listen .*443|ssl_certificate|include" "$CONF" || true
+              echo "== current configured certificate =="
+              CERT_PATH="$(grep -m1 -E "^[[:space:]]*ssl_certificate[[:space:]]+" "$CONF" | awk '{print $2}' | sed 's/;//')"
+              if [ -n "$CERT_PATH" ] && [ -f "$CERT_PATH" ]; then
+                openssl x509 -in "$CERT_PATH" -noout -subject -issuer -dates -ext subjectAltName 2>/dev/null || true
+              else
+                echo "No readable ssl_certificate path found"
+              fi
+              echo "== site include files mentioning sqms/ssl =="
+              find /www/server/panel/vhost/nginx -path "*gl.oksja.cn*" -type f -name "*.conf" -maxdepth 6 2>/dev/null \
+                -exec sh -c 'for f; do echo "-- $f"; grep -nE "sqms|ssl_certificate|server_name|include" "$f" || true; done' sh {} + || true
+            }
+
+            if [ "$MODE" = "diagnose" ]; then
+              print_diagnose
+              exit 0
+            fi
+
+            mkdir -p "$WEBROOT/.well-known/acme-challenge"
+            echo "ok" > "$WEBROOT/.well-known/acme-challenge/codex-cert-check.txt"
+
+            CERT_FULLCHAIN=""
+            CERT_KEY=""
+
+            if command -v certbot >/dev/null 2>&1; then
+              echo "== issuing with certbot =="
+              certbot certonly \
+                --webroot \
+                -w "$WEBROOT" \
+                -d "$DOMAIN" \
+                --email "$CERT_EMAIL" \
+                --agree-tos \
+                --non-interactive \
+                --keep-until-expiring
+
+              mkdir -p "$CERT_DIR"
+              cp -L "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/fullchain.pem"
+              cp -L "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/privkey.pem"
+              CERT_FULLCHAIN="$CERT_DIR/fullchain.pem"
+              CERT_KEY="$CERT_DIR/privkey.pem"
+            elif [ -x /root/.acme.sh/acme.sh ]; then
+              echo "== issuing with acme.sh =="
+              /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+              /root/.acme.sh/acme.sh --issue -d "$DOMAIN" -w "$WEBROOT" --server letsencrypt --force
+              mkdir -p "$CERT_DIR"
+              /root/.acme.sh/acme.sh --install-cert -d "$DOMAIN" \
+                --fullchain-file "$CERT_DIR/fullchain.pem" \
+                --key-file "$CERT_DIR/privkey.pem"
+              CERT_FULLCHAIN="$CERT_DIR/fullchain.pem"
+              CERT_KEY="$CERT_DIR/privkey.pem"
+            else
+              echo "Neither certbot nor acme.sh was found on the server"
+              exit 1
+            fi
+
+            chmod 644 "$CERT_FULLCHAIN"
+            chmod 600 "$CERT_KEY"
+
+            openssl x509 -in "$CERT_FULLCHAIN" -noout -subject -issuer -dates -ext subjectAltName
+
+            BACKUP="$CONF.bak.$(date +%Y%m%d%H%M%S)"
+            cp "$CONF" "$BACKUP"
+            echo "backup=$BACKUP"
+
+            PYTHON_BIN="$(command -v python3 || command -v python || true)"
+            if [ -z "$PYTHON_BIN" ]; then
+              echo "python3/python command not found on server"
+              exit 1
+            fi
+            "$PYTHON_BIN" - "$CONF" "$CERT_FULLCHAIN" "$CERT_KEY" <<'PY'
+            import re
+            import sys
+            from pathlib import Path
+
+            conf = Path(sys.argv[1])
+            fullchain = sys.argv[2]
+            privkey = sys.argv[3]
+            text = conf.read_text(encoding="utf-8")
+            cert_line = f"    ssl_certificate {fullchain};"
+            key_line = f"    ssl_certificate_key {privkey};"
+
+            if re.search(r"^\s*ssl_certificate\s+[^;]+;", text, flags=re.M):
+                text = re.sub(r"^\s*ssl_certificate\s+[^;]+;", cert_line, text, count=1, flags=re.M)
+            else:
+                text = re.sub(r"(^\s*listen\s+[^;]*443[^;]*;\s*$)", r"\1\n" + cert_line, text, count=1, flags=re.M)
+
+            if re.search(r"^\s*ssl_certificate_key\s+[^;]+;", text, flags=re.M):
+                text = re.sub(r"^\s*ssl_certificate_key\s+[^;]+;", key_line, text, count=1, flags=re.M)
+            else:
+                text = text.replace(cert_line, cert_line + "\n" + key_line, 1)
+
+            conf.write_text(text, encoding="utf-8")
+            PY
+
+            echo "== updated nginx ssl lines =="
+            grep -nE "server_name|listen .*443|ssl_certificate" "$CONF" || true
+
+            nginx -t
+            systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true
+            echo "certificate bound and nginx reloaded"
