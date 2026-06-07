@@ -21,6 +21,8 @@ page {
 	font-family: -apple-system, "PingFang SC", "Helvetica Neue", Helvetica, "Microsoft YaHei", Arial, sans-serif;
 }
 view, text, input, textarea, scroll-view { box-sizing: border-box; }
+input, textarea { min-width: 0; line-height: normal; }
+textarea { width: 100%; min-height: 140rpx; overflow: auto; }
 
 /* 主题色 */
 $primary: #2563eb;
@@ -37,7 +39,7 @@ $warning: #f59e0b;
 .metric-num { display: block; color: #f8fbff; font-size: 34rpx; font-weight: 800; }
 .metric-label { display: block; color: rgba(248,251,255,0.76); font-size: 22rpx; margin-top: 4rpx; }
 .toolbar { display: flex; flex-direction: row; align-items: center; gap: 14rpx; padding: 18rpx 24rpx; background: #fff; }
-.toolbar-search { flex: 1; height: 78rpx; line-height: 78rpx; background: #f3f6fb; border-radius: 999rpx; padding: 0 28rpx; font-size: 27rpx; border: 1rpx solid #e8edf5; }
+.toolbar-search { flex: 1; height: 78rpx; line-height: normal; background: #f3f6fb; border-radius: 999rpx; padding: 0 28rpx; font-size: 27rpx; border: 1rpx solid #e8edf5; }
 .list-card { background: #fff; border-radius: 22rpx; padding: 26rpx; margin: 16rpx 24rpx; box-shadow: 0 8rpx 24rpx rgba(17, 24, 39, 0.05); }
 .meta-line { display: block; font-size: 25rpx; color: #667085; margin-top: 10rpx; line-height: 1.5; }
 .sub-empty { margin: 34rpx 24rpx; padding: 80rpx 34rpx; border-radius: 24rpx; background: #fff; text-align: center; color: #98a2b3; font-size: 28rpx; box-shadow: 0 8rpx 24rpx rgba(17, 24, 39, 0.04); }
@@ -112,11 +114,25 @@ $warning: #f59e0b;
 /* 表单 */
 .field { display: flex; flex-direction: row; align-items: center; padding: 24rpx 0; border-bottom: 1rpx solid #f0f1f4; }
 .field-label { width: 180rpx; color: #6b7280; font-size: 28rpx; }
-.field-input { flex: 1; text-align: right; font-size: 28rpx; }
+.field-input { flex: 1; min-width: 0; text-align: right; font-size: 28rpx; line-height: 1.45; word-break: break-all; }
 .field-col { display: flex; flex-direction: column; padding: 20rpx 0; border-bottom: 1rpx solid #f0f1f4; }
-.input-box { background: #f7f8fa; border-radius: 12rpx; padding: 20rpx 24rpx; font-size: 28rpx; border: 1rpx solid #eef1f6; color: #1f2937; }
-input.input-box { height: 88rpx; line-height: 88rpx; padding: 0 24rpx; }
-textarea.input-box { line-height: 1.6; }
+.input-box { background: #f7f8fa; border-radius: 12rpx; padding: 20rpx 24rpx; font-size: 28rpx; line-height: 1.45; border: 1rpx solid #eef1f6; color: #1f2937; }
+input.field-input { height: 56rpx; line-height: normal; padding-left: 16rpx; }
+input.input-box { height: 88rpx; min-height: 88rpx; line-height: normal; padding: 0 24rpx; }
+textarea.input-box { min-height: 180rpx; line-height: 1.6; }
+input.toolbar-search,
+input.search-input,
+input.ipt-field,
+input.reg-input,
+input.chat-input,
+input.mini-ipt,
+input.support-input,
+input.expect-input,
+input.quote-entry-input,
+input.price-input,
+input.reply-input {
+	line-height: normal;
+}
 
 /* 空状态 */
 .empty { text-align: center; color: #9ca3af; padding: 120rpx 0; font-size: 28rpx; }
