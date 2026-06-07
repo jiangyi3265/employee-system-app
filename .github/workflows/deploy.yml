@@ -85,6 +85,7 @@ jobs:
                 exit 1
               fi
               "$PYTHON_BIN" - "$CONF" "$BACKEND_PORT" <<'PY'
+            import glob
             import re
             import sys
             from pathlib import Path
@@ -92,16 +93,14 @@ jobs:
             path = Path(sys.argv[1])
             backend_port = sys.argv[2]
             lines = path.read_text(encoding="utf-8").splitlines()
-            next_lines = []
-            i = 0
             sqms_location = re.compile(r"^\s*location\b(?=[^{;]*sqms)", re.IGNORECASE)
 
-            def skip_nginx_block(start_index):
+            def skip_nginx_block(source_lines, start_index):
                 index = start_index
                 depth = 0
                 saw_open_brace = False
-                while index < len(lines):
-                    current = lines[index]
+                while index < len(source_lines):
+                    current = source_lines[index]
                     depth += current.count("{") - current.count("}")
                     saw_open_brace = saw_open_brace or "{" in current
                     index += 1
@@ -111,20 +110,61 @@ jobs:
                         break
                 return index
 
-            while i < len(lines):
-                line = lines[i]
-                if "# codex-sqms-proxy-start" in line:
+            def remove_sqms_blocks(source_lines):
+                cleaned = []
+                removed = 0
+                i = 0
+                while i < len(source_lines):
+                    line = source_lines[i]
+                    if "# codex-sqms-proxy-start" in line:
+                        removed += 1
+                        i += 1
+                        while i < len(source_lines) and "# codex-sqms-proxy-end" not in source_lines[i]:
+                            i += 1
+                        if i < len(source_lines):
+                            i += 1
+                        continue
+                    if sqms_location.search(line):
+                        removed += 1
+                        i = skip_nginx_block(source_lines, i)
+                        continue
+                    cleaned.append(line)
                     i += 1
-                    while i < len(lines) and "# codex-sqms-proxy-end" not in lines[i]:
-                        i += 1
-                    if i < len(lines):
-                        i += 1
-                    continue
-                if sqms_location.search(line):
-                    i = skip_nginx_block(i)
-                    continue
-                next_lines.append(line)
-                i += 1
+                return cleaned, removed
+
+            include_patterns = []
+            for line in lines:
+                match = re.match(r"^\s*include\s+([^;]+);", line)
+                if match:
+                    include_patterns.append(match.group(1).strip().strip("'\""))
+            include_patterns.extend([
+                "/www/server/panel/vhost/nginx/proxy/gl.oksja.cn/*.conf",
+                "/www/server/panel/vhost/rewrite/gl.oksja.cn.conf",
+            ])
+
+            include_files = []
+            seen_paths = {path.resolve()}
+            for pattern in include_patterns:
+                for match in glob.glob(pattern):
+                    include_path = Path(match)
+                    if not include_path.is_file():
+                        continue
+                    resolved = include_path.resolve()
+                    if resolved in seen_paths:
+                        continue
+                    seen_paths.add(resolved)
+                    include_files.append(include_path)
+
+            for include_path in include_files:
+                include_lines = include_path.read_text(encoding="utf-8").splitlines()
+                cleaned_include, removed = remove_sqms_blocks(include_lines)
+                if removed:
+                    include_path.write_text("\n".join(cleaned_include) + "\n", encoding="utf-8")
+                    print(f"removed {removed} sqms location block(s) from include: {include_path}")
+
+            next_lines, removed_main = remove_sqms_blocks(lines)
+            if removed_main:
+                print(f"removed {removed_main} sqms location block(s) from main config")
 
             block = [
                 "    # codex-sqms-proxy-start",
