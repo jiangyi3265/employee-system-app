@@ -2,7 +2,7 @@
 	<view class="page">
 		<global-stats />
 		<view class="search-bar">
-			<input class="search-input" v-model="kw" placeholder="搜索客户名称" @input="load" />
+			<input class="search-input" v-model="kw" placeholder="搜索客户 / 员工" @input="load" />
 		</view>
 
 		<view class="tabs">
@@ -75,7 +75,12 @@ export default {
 			}
 			if (this.tab) list = list.filter((o) => o.dealStatus === this.tab)
 			const kw = this.kw.trim()
-			if (kw) list = list.filter((o) => o.customerName.indexOf(kw) >= 0)
+			if (kw) {
+				list = list.filter((o) => {
+					const text = [o.customerName, o.employeeName].filter(Boolean).join(' ')
+					return text.indexOf(kw) >= 0
+				})
+			}
 			this.list = list
 		},
 		go(id) { uni.navigateTo({ url: '/pages/quote/detail?id=' + id }) },
@@ -86,11 +91,11 @@ export default {
 
 <style lang="scss" scoped>
 .search-bar { padding: 20rpx 24rpx; background: #fff; }
-.search-input { background: #f3f4f6; border-radius: 999rpx; padding: 18rpx 32rpx; font-size: 28rpx; }
-.tabs { display: flex; background: #fff; padding: 0 24rpx 20rpx; gap: 16rpx; }
+.search-input { height: 78rpx; min-height: 78rpx; line-height: normal; background: #f3f4f6; border-radius: 999rpx; padding: 0 32rpx; font-size: 28rpx; }
+.tabs { display: flex; background: #fff; padding: 0 24rpx 20rpx; gap: 16rpx; flex-wrap: wrap; }
 .tab-item { padding: 12rpx 28rpx; border-radius: 999rpx; font-size: 26rpx; color: #6b7280; background: #f3f4f6; }
 .tab-item.on { background: #2563eb; color: #fff; }
 .order { margin: 16rpx 24rpx; }
-.finance-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10rpx; background: #f8fafc; border-radius: 12rpx; padding: 14rpx; }
-.finance-num { display: block; font-size: 23rpx; font-weight: 700; margin-top: 4rpx; color: #111827; }
+.finance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12rpx; background: #f8fafc; border-radius: 12rpx; padding: 14rpx; }
+.finance-num { display: block; font-size: 25rpx; font-weight: 700; margin-top: 4rpx; color: #111827; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

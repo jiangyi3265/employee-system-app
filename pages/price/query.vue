@@ -7,7 +7,6 @@
 				<text class="t-title">价格查询</text>
 				<text class="inline-action" @click="reset">重置</text>
 			</view>
-			<input class="input-box search-ipt" v-model="productKw" placeholder="搜索商品名称 / 规格" />
 			<view class="field">
 				<text class="field-label">商品</text>
 				<view class="field-input picker-text" @click="openProductPicker">
@@ -79,27 +78,27 @@
 		</view>
 
 		<view class="card" v-if="product">
-			<text class="t-title mb-m">{{ customerId ? '该客户历史成交价' : '历史成交价（每客户最近一条）' }}</text>
-			<view class="price-row" v-for="row in dealRows" :key="row.key">
+			<text class="t-title mb-m">{{ dealTitle }}</text>
+			<view class="price-row" v-for="row in dealDisplayRows" :key="row.key">
 				<view class="col flex1">
 					<text class="t-bold" style="font-size:27rpx;">{{ row.name }}</text>
 					<text class="t-muted mt-s">{{ row.sub || '-' }} · {{ fmt(row.time) }}</text>
 				</view>
 				<text class="t-price">{{ money(row.price) }}</text>
 			</view>
-			<view class="empty-lite" v-if="!dealRows.length">暂无成交记录</view>
+			<view class="empty-lite" v-if="!dealDisplayRows.length">暂无成交记录</view>
 		</view>
 
 		<view class="card" v-if="product">
-			<text class="t-title mb-m">{{ customerId ? '该客户历史报价' : '历史报价（每客户最近一条）' }}</text>
-			<view class="price-row" v-for="row in quoteRows" :key="row.key">
+			<text class="t-title mb-m">{{ quoteTitle }}</text>
+			<view class="price-row" v-for="row in quoteDisplayRows" :key="row.key">
 				<view class="col flex1">
 					<text class="t-bold" style="font-size:27rpx;">{{ row.name }}</text>
 					<text class="t-muted mt-s">{{ row.sub || '-' }} · {{ fmt(row.time) }}</text>
 				</view>
 				<text class="t-price">{{ money(row.price) }}</text>
 			</view>
-			<view class="empty-lite" v-if="!quoteRows.length">暂无报价记录</view>
+			<view class="empty-lite" v-if="!quoteDisplayRows.length">暂无报价记录</view>
 		</view>
 
 		<view class="card" v-if="product">
@@ -112,6 +111,21 @@
 				<text class="t-price">{{ money(row.price) }}</text>
 			</view>
 			<view class="empty-lite" v-if="!competitorRows.length">暂无同行/供货商报价</view>
+		</view>
+
+		<view class="card" v-if="product">
+			<text class="t-title mb-m">历史采购价（所有供货商/所有价格）</text>
+			<view class="price-row" v-for="row in purchaseRows" :key="row.key">
+				<view class="col flex1">
+					<text class="t-bold" style="font-size:27rpx;">{{ row.supplierName }}</text>
+					<text class="t-muted mt-s">数量 {{ row.qty || '-' }} · {{ fmt(row.time) }}</text>
+				</view>
+				<view class="col price-col">
+					<text class="t-price">{{ money(row.purchasePrice) }}</text>
+					<text class="t-muted mt-s">成本 {{ money(row.costPrice) }}</text>
+				</view>
+			</view>
+			<view class="empty-lite" v-if="!purchaseRows.length">暂无采购记录</view>
 		</view>
 
 		<view class="modal-mask" v-if="showProductPicker" @click="showProductPicker = false">
@@ -155,7 +169,7 @@ import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney, toast } from '@/utils/format.js'
-import { isEffectiveQuoteItem, recommendQuote } from '@/utils/pricing.js'
+import { calcPrices, isQuotableQuoteItem, recommendQuote } from '@/utils/pricing.js'
 
 export default {
 	data() {
@@ -196,6 +210,23 @@ export default {
 		quoteRows() {
 			return this.latestQuoteRows('quote', this.customerId)
 		},
+		dealDisplayRows() {
+			if (!this.customerId) return this.dealRows
+			return this.dealRows.length ? this.dealRows : this.globalDealRows
+		},
+		quoteDisplayRows() {
+			if (!this.customerId) return this.quoteRows
+			const globalRows = this.latestQuoteRows('quote', '')
+			return this.quoteRows.length ? this.quoteRows : globalRows
+		},
+		dealTitle() {
+			if (!this.customerId) return '历史成交价（每客户最近一条）'
+			return this.dealRows.length ? '该客户历史成交价' : '该客户暂无成交价，显示全客户最近成交价'
+		},
+		quoteTitle() {
+			if (!this.customerId) return '历史报价（每客户最近一条）'
+			return this.quoteRows.length ? '该客户历史报价' : '该客户暂无报价，显示全客户最近报价'
+		},
 		competitorRows() {
 			if (!this.productId) return []
 			let rows = db.list(T.COMP_QUOTE, { productId: this.productId })
@@ -211,6 +242,23 @@ export default {
 				return b.time - a.time
 			})
 			return this.latestBy(rows, (row) => row.key)
+		},
+		purchaseRows() {
+			if (!this.productId) return []
+			return db.list(T.PURCHASE_ITEM, { productId: this.productId }, 'createTime', true).map((row) => {
+				const purchasePrice = Number(row.purchasePrice) || 0
+				const freight = Number(row.freightShare) || 0
+				const supplierName = row.supplierName || this.nameOf(T.SUPPLIER, row.supplierId) || '未知供货商'
+				const time = Number(row.updateTime || row.createTime) || 0
+				return {
+					...row,
+					key: row._id,
+					supplierName,
+					purchasePrice,
+					costPrice: calcPrices(purchasePrice, null, freight).costPrice,
+					time
+				}
+			}).sort((a, b) => b.time - a.time)
 		},
 		selectedCompetitorRows() {
 			return this.competitorRows.filter((row) => this.selectedCompetitorKeys.includes(row.key))
@@ -329,7 +377,7 @@ export default {
 		latestQuoteRows(type, customerId = '') {
 			if (!this.productId) return []
 			let rows = db.list(T.QUOTE_ITEM, { productId: this.productId }, 'updateTime', true)
-				.filter(isEffectiveQuoteItem)
+				.filter(isQuotableQuoteItem)
 				.filter((row) => type === 'done' ? row.status === 'done' : row.status !== 'done')
 			if (customerId) rows = rows.filter((row) => row.customerId === customerId)
 			const mapped = rows.map((row) => this.enrichQuote(row)).sort((a, b) => b.time - a.time)

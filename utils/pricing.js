@@ -83,14 +83,14 @@ export function isQuotableQuoteItem(item) {
  * 从产品报价表中找该产品已成交记录，按时间倒序
  */
 export function recentDealPrices(productId, n = 3) {
-	const items = db.list(T.QUOTE_ITEM, { productId, status: 'done' }, 'updateTime', true).filter(isEffectiveQuoteItem)
+	const items = db.list(T.QUOTE_ITEM, { productId, status: 'done' }, 'updateTime', true).filter(isQuotableQuoteItem)
 	return items.slice(0, n).map((it) => it.price)
 }
 
 export function recentQuotePrices(productId, n = 3) {
 	const items = db.list(T.QUOTE_ITEM, { productId }, 'updateTime', true)
 		.filter((it) => it.status !== 'done')
-		.filter(isEffectiveQuoteItem)
+		.filter(isQuotableQuoteItem)
 	return items.slice(0, n).map((it) => it.price)
 }
 

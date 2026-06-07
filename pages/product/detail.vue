@@ -52,7 +52,7 @@
 				</view>
 			</view>
 			<view class="history-section">
-				<text class="t-bold">最近成交价</text>
+				<text class="t-bold">最近成交价（真实成交）</text>
 				<view class="history-row" v-for="it in recentDeals" :key="it._id">
 					<text class="t-sub flex1">{{ it.customerName || customerName(it.customerId) }} · {{ it.employeeName || employeeName(it.employeeId) }}</text>
 					<text class="t-price">{{ money(it.price) }}</text>
@@ -62,13 +62,26 @@
 			</view>
 			<view class="divider"></view>
 			<view class="history-section">
-				<text class="t-bold">最近报价</text>
+				<text class="t-bold">最近报价（未成交）</text>
 				<view class="history-row" v-for="it in recentQuotes" :key="it._id">
 					<text class="t-sub flex1">{{ it.customerName || customerName(it.customerId) }} · {{ it.employeeName || employeeName(it.employeeId) }}</text>
 					<text class="t-price">{{ money(it.price) }}</text>
 					<text class="t-muted">{{ fmt(it.updateTime || it.createTime) }}</text>
 				</view>
 				<text class="t-muted mt-s" v-if="!recentQuotes.length">暂无有效报价</text>
+			</view>
+			<view class="divider"></view>
+			<view class="history-section">
+				<text class="t-bold">历史采购价（所有供货商/所有价格）</text>
+				<view class="history-row" v-for="it in purchaseRows" :key="it._id">
+					<text class="t-sub flex1">{{ it.supplierName }} · 数量 {{ it.qty || '-' }}</text>
+					<view class="col purchase-price-col">
+						<text class="t-price">{{ money(it.purchasePrice) }}</text>
+						<text class="t-muted">成本 {{ money(it.costPrice) }}</text>
+					</view>
+					<text class="t-muted">{{ fmt(it.time) }}</text>
+				</view>
+				<text class="t-muted mt-s" v-if="!purchaseRows.length">暂无采购记录</text>
 			</view>
 			<view class="divider"></view>
 			<view class="history-section">
@@ -99,7 +112,7 @@
 <script>
 import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
-import { calcPrices, getSettings, isEffectiveQuoteItem } from '@/utils/pricing.js'
+import { calcPrices, getSettings, isQuotableQuoteItem } from '@/utils/pricing.js'
 import { toast, confirmDialog, fmtMoney, fmtDate } from '@/utils/format.js'
 
 export default {
@@ -114,6 +127,7 @@ export default {
 			},
 			recentDeals: [],
 			recentQuotes: [],
+			purchaseRows: [],
 			compQuotes: [],
 			competitors: [],
 			selCompId: '',
@@ -168,15 +182,33 @@ export default {
 		loadHistory() {
 			if (!this.id) return
 			this.recentDeals = db.list(T.QUOTE_ITEM, { productId: this.id, status: 'done' }, 'updateTime', true)
-				.filter(isEffectiveQuoteItem)
+				.filter(isQuotableQuoteItem)
 				.filter((it) => this.inRange(it.updateTime || it.createTime))
-				.slice(0, 3)
+				.slice(0, 10)
 			this.recentQuotes = db.list(T.QUOTE_ITEM, { productId: this.id }, 'updateTime', true)
 				.filter((it) => it.status !== 'done')
-				.filter(isEffectiveQuoteItem)
+				.filter(isQuotableQuoteItem)
 				.filter((it) => this.inRange(it.updateTime || it.createTime))
-				.slice(0, 3)
-			this.compQuotes = db.list(T.COMP_QUOTE, { productId: this.id }, 'createTime', true).slice(0, 3)
+				.slice(0, 10)
+			this.purchaseRows = db.list(T.PURCHASE_ITEM, { productId: this.id }, 'createTime', true)
+				.filter((it) => this.inRange(it.updateTime || it.createTime))
+				.map((it) => {
+					const purchasePrice = Number(it.purchasePrice) || 0
+					const freight = Number(it.freightShare) || 0
+					return {
+						...it,
+						supplierName: it.supplierName || this.supplierName(it.supplierId),
+						purchasePrice,
+						costPrice: calcPrices(purchasePrice, getSettings(), freight).costPrice,
+						time: Number(it.updateTime || it.createTime) || 0
+					}
+				})
+				.slice(0, 20)
+			this.compQuotes = db.list(T.COMP_QUOTE, { productId: this.id }, 'createTime', true).slice(0, 10)
+		},
+		supplierName(id) {
+			const s = db.get(T.SUPPLIER, id)
+			return s ? s.name : '未知供货商'
 		},
 		recalc() {
 			const prices = calcPrices(this.form.purchasePrice, getSettings())
@@ -255,6 +287,7 @@ export default {
 .history-section { padding: 8rpx 0; }
 .history-row, .comp-row { display: flex; flex-direction: row; align-items: center; gap: 12rpx; padding: 14rpx 0; border-bottom: 1rpx dashed #edf1f6; }
 .history-row:last-child, .comp-row:last-child { border-bottom: none; }
+.purchase-price-col { align-items: flex-end; min-width: 142rpx; }
 .mini-ipt { width: 130rpx; background: #f7f8fa; border-radius: 8rpx; padding: 8rpx 12rpx; font-size: 26rpx; text-align: center; }
 .compact { padding: 12rpx 16rpx; font-size: 25rpx; min-width: 160rpx; }
 .price-input { width: 150rpx; min-width: 0; }

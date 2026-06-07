@@ -27,6 +27,7 @@ const STAFF_ROUTES = new Set([
 	'pages/product/list',
 	'pages/product/detail',
 	'pages/product/settings',
+	'pages/price/query',
 	'pages/quote/list',
 	'pages/quote/detail',
 	'pages/quote/select',

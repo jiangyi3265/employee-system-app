@@ -23,6 +23,8 @@ export function customerFollowStatus(customer, employeeId = '') {
 	const lastFollowTime = follows.length ? follows[0].createTime : customer.createTime
 	const days = daysSince(lastFollowTime)
 	const lastQuoteTime = orders.length ? Math.max(...orders.map((o) => o.createTime || 0)) : 0
+	const latestOrder = orders.slice().sort((a, b) => (b.createTime || 0) - (a.createTime || 0))[0]
+	const owner = customer.ownerId ? db.get(T.EMPLOYEE, customer.ownerId) : null
 	let dealtItems = db.list(T.QUOTE_ITEM, { customerId: customer._id, status: 'done' }, 'updateTime', true).filter(isEffectiveQuoteItem)
 	if (employeeId) dealtItems = dealtItems.filter((it) => it.employeeId === employeeId)
 	const lastDealTime = dealtItems.length ? dealtItems[0].updateTime || dealtItems[0].createTime : 0
@@ -52,6 +54,8 @@ export function customerFollowStatus(customer, employeeId = '') {
 		lastDealTime,
 		lastQuoteDays: lastQuoteTime ? daysSince(lastQuoteTime) : null,
 		lastDealDays: lastDealTime ? daysSince(lastDealTime) : null,
+		customerDays: daysSince(customer.createTime),
+		employeeName: (latestOrder && latestOrder.employeeName) || (owner && owner.name) || '',
 		threshold,
 		warning,
 		orderCount: orders.length,

@@ -62,10 +62,12 @@
 		<view class="modal-mask" v-if="showSupPicker" @click="showSupPicker = false">
 			<view class="modal-body" @click.stop>
 				<text class="t-title mb-m">选择供应商</text>
+				<input class="input-box modal-search mb-s" v-model="supKw" placeholder="输入供应商 / 联系人 / 手机筛选" @input="loadSuppliers" />
+				<text class="t-muted mb-s">共 {{ supplierTotal }} 个供应商，当前显示 {{ suppliers.length }} 个</text>
 				<view class="picker-item" v-for="s in suppliers" :key="s._id" @click="selectSupplier(s)">
 					<text>{{ s.name }} · {{ s.contact }}</text>
 				</view>
-				<view class="empty" v-if="!suppliers.length">暂无供应商</view>
+				<view class="empty" v-if="!suppliers.length">{{ supKw ? '没有匹配的供应商' : '暂无供应商' }}</view>
 			</view>
 		</view>
 
@@ -103,6 +105,8 @@ export default {
 			showSupPicker: false,
 			showProdPicker: false,
 			suppliers: [],
+			supKw: '',
+			supplierTotal: 0,
 			products: [],
 			productKw: '',
 			productTotal: 0,
@@ -149,8 +153,26 @@ export default {
 			})
 		},
 		pickSupplier() {
-			this.suppliers = db.list(T.SUPPLIER)
+			this.supKw = ''
+			this.loadSuppliers()
 			this.showSupPicker = true
+		},
+		loadSuppliers() {
+			const kw = this.supKw.trim().toLowerCase()
+			let list = db.list(T.SUPPLIER, null, 'name')
+			this.supplierTotal = list.length
+			if (kw) {
+				list = list.filter((s) => {
+					const text = [
+						s.name,
+						s.contact,
+						s.phone,
+						s.address
+					].filter(Boolean).join(' ').toLowerCase()
+					return text.indexOf(kw) >= 0
+				})
+			}
+			this.suppliers = list.slice(0, kw ? 80 : 30)
 		},
 		selectSupplier(s) {
 			this.form.supplierId = s._id
@@ -284,6 +306,6 @@ export default {
 .mini-ipt { width: 120rpx; background: #f7f8fa; border-radius: 8rpx; padding: 8rpx 12rpx; font-size: 26rpx; text-align: center; }
 .modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 999; display: flex; align-items: flex-end; }
 .modal-body { width: 100%; background: #fff; border-radius: 28rpx 28rpx 0 0; padding: 40rpx; max-height: 70vh; overflow-y: auto; }
-.product-search { height: 84rpx; min-height: 84rpx; line-height: normal; padding: 0 24rpx; }
+.product-search, .modal-search { height: 84rpx; min-height: 84rpx; line-height: normal; padding: 0 24rpx; }
 .picker-item { padding: 24rpx 0; border-bottom: 1rpx solid #f0f1f4; font-size: 30rpx; }
 </style>

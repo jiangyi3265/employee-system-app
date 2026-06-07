@@ -28,7 +28,7 @@
 				<!-- 采购 / 供货商价格趋势 -->
 				<view class="purchase-box mt-s">
 					<view class="row-between">
-						<text class="t-bold" style="font-size:26rpx;">供货商采购参考</text>
+						<text class="t-bold" style="font-size:26rpx;">历史采购价（所有供货商/所有价格）</text>
 						<text class="t-muted">当前成本 {{ money(p.costPrice) }}</text>
 					</view>
 					<view class="supplier-grid mt-s" v-if="supplierLatest.length">
@@ -133,7 +133,7 @@
 import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtMoney, fmtDate, toast } from '@/utils/format.js'
-import { recentDealPrices, competitorQuotes, recommendQuote, isEffectiveQuoteItem, calcPrices, round2 } from '@/utils/pricing.js'
+import { recentDealPrices, competitorQuotes, recommendQuote, isQuotableQuoteItem, calcPrices, round2 } from '@/utils/pricing.js'
 
 export default {
 	data() {
@@ -223,10 +223,10 @@ export default {
 		expand(p) {
 			this.expanded = p._id
 			this.customerExpect = null
-			this.recentDeals = db.list(T.QUOTE_ITEM, { productId: p._id, status: 'done' }, 'updateTime', true).filter(isEffectiveQuoteItem).slice(0, 3)
+			this.recentDeals = db.list(T.QUOTE_ITEM, { productId: p._id, status: 'done' }, 'updateTime', true).filter(isQuotableQuoteItem).slice(0, 3)
 			this.recentQuotes = db.list(T.QUOTE_ITEM, { productId: p._id }, 'updateTime', true)
 				.filter((it) => it.status !== 'done')
-				.filter(isEffectiveQuoteItem)
+				.filter(isQuotableQuoteItem)
 				.slice(0, 3)
 			this.compQuotes = competitorQuotes(p._id)
 			this.loadPurchaseRefs(p._id)
@@ -294,7 +294,7 @@ export default {
 			const customerId = this.contextCustomerId()
 			if (customerId) {
 				const customerDeal = db.list(T.QUOTE_ITEM, { productId, customerId, status: 'done' }, 'updateTime', true)
-					.filter(isEffectiveQuoteItem)
+					.filter(isQuotableQuoteItem)
 				if (customerDeal.length) return Number(customerDeal[0].price) || null
 			}
 			const deals = recentDealPrices(productId, 1)
@@ -307,11 +307,15 @@ export default {
 		addCompQuote(p) {
 			if (!this.selCompId) return toast('请选择同行')
 			if (!this.compInputPrice) return toast('请输入报价')
+			const customerId = this.contextCustomerId()
+			const customerName = this.contextCustomerName()
 			db.insert(T.COMP_QUOTE, {
 				productId: p._id,
 				competitorId: this.selCompId,
 				competitorName: this.selCompName,
-				price: Number(this.compInputPrice)
+				price: Number(this.compInputPrice),
+				sourceCustomerId: customerId,
+				sourceCustomerName: customerName
 			})
 			toast('已录入', 'success')
 			this.selCompId = ''; this.selCompName = ''; this.compInputPrice = ''
