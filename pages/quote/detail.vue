@@ -208,8 +208,7 @@ export default {
 		},
 		addProductNav() {
 			if (!this.form.customerId) return toast('请先选择客户')
-			const query = this.id ? '?orderId=' + this.id : ''
-			uni.navigateTo({ url: '/pages/quote/select' + query })
+			uni.navigateTo({ url: '/pages/quote/select' + this.buildSelectQuery() })
 		},
 		addProduct(p, recPrice) {
 			const exists = this.items.find((it) => it.productId === p._id)
@@ -421,8 +420,15 @@ export default {
 		},
 		goSmartQuote(productId) {
 			if (!productId) return
-			const query = this.id ? `?orderId=${this.id}&productId=${productId}` : `?productId=${productId}`
-			uni.navigateTo({ url: '/pages/quote/select' + query })
+			uni.navigateTo({ url: '/pages/quote/select' + this.buildSelectQuery(productId) })
+		},
+		buildSelectQuery(productId = '') {
+			const params = []
+			if (this.id) params.push(`orderId=${encodeURIComponent(this.id)}`)
+			if (productId) params.push(`productId=${encodeURIComponent(productId)}`)
+			if (this.form.customerId) params.push(`customerId=${encodeURIComponent(this.form.customerId)}`)
+			if (this.form.customerName) params.push(`customerName=${encodeURIComponent(this.form.customerName)}`)
+			return params.length ? `?${params.join('&')}` : ''
 		},
 		goExport() {
 			if (this.pendingReviewCount) return toast('存在低价待审核商品，审核通过前不能导出报价')

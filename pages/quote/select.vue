@@ -1,8 +1,9 @@
 <template>
 	<view class="page">
 		<global-stats />
-		<view class="search-bar">
+		<view class="search-bar row gap-s">
 			<input class="search-input" v-model="kw" placeholder="搜索产品名称/规格" @input="load" />
+			<button class="btn btn-sm query-btn" @click="goPriceQuery()">价格查询</button>
 		</view>
 		<view class="empty" v-if="!list.length">暂无产品</view>
 		<view class="card prod" v-for="p in list" :key="p._id">
@@ -88,6 +89,7 @@
 
 				<view style="margin-top:20rpx;">
 					<button class="btn btn-block btn-sm" @click="pick(p)">选用此产品</button>
+					<button class="btn btn-ghost btn-block btn-sm mt-s" @click="goPriceQuery(p)">比价参考</button>
 				</view>
 			</view>
 
@@ -107,7 +109,7 @@ import { recentDealPrices, competitorQuotes, recommendQuote, isEffectiveQuoteIte
 export default {
 	data() {
 		return {
-			list: [], kw: '', orderId: '', focusedProductId: '',
+			list: [], kw: '', orderId: '', focusedProductId: '', customerId: '', contextCustomerLabel: '',
 			expanded: '',
 			recentDeals: [], recentQuotes: [], compQuotes: [], rec: null, customerExpect: null,
 			competitors: [], selCompId: '', selCompName: '', compInputPrice: ''
@@ -116,6 +118,15 @@ export default {
 	onLoad(q) {
 		this.orderId = (q && q.orderId) || ''
 		this.focusedProductId = (q && q.productId) || ''
+		this.customerId = (q && q.customerId) || ''
+		this.contextCustomerLabel = q && q.customerName ? decodeURIComponent(q.customerName) : ''
+		if (this.orderId && !this.customerId) {
+			const order = db.get(T.QUOTE_ORDER, this.orderId)
+			if (order) {
+				this.customerId = order.customerId || ''
+				this.contextCustomerLabel = order.customerName || ''
+			}
+		}
 		this.competitors = db.list(T.COMPETITOR)
 		this.load()
 		if (this.focusedProductId) {
@@ -139,6 +150,23 @@ export default {
 			const e = db.get(T.EMPLOYEE, id)
 			return e ? e.name : ''
 		},
+		contextCustomerId() {
+			if (this.customerId) return this.customerId
+			const pages = getCurrentPages()
+			const prev = pages[pages.length - 2]
+			const vm = prev && (prev.$vm || prev)
+			return vm && vm.form ? vm.form.customerId : ''
+		},
+		contextCustomerName() {
+			if (this.contextCustomerLabel) return this.contextCustomerLabel
+			const id = this.contextCustomerId()
+			const c = db.get(T.CUSTOMER, id)
+			if (c) return c.name
+			const pages = getCurrentPages()
+			const prev = pages[pages.length - 2]
+			const vm = prev && (prev.$vm || prev)
+			return vm && vm.form ? vm.form.customerName : ''
+		},
 		load() {
 			let list = db.list(T.PRODUCT, null, 'updateTime', true)
 			const kw = this.kw.trim()
@@ -157,16 +185,25 @@ export default {
 			this.calcRecommend(p)
 		},
 		calcRecommend(p) {
-			const deals = recentDealPrices(p._id, 1)
-			const comp = competitorQuotes(p._id, 1)
+			const deal = this.historyDealPrice(p._id)
 			this.rec = recommendQuote({
 				suggestPrice: p.suggestPrice,
 				minPrice: p.minPrice,
 				costPrice: p.costPrice,
-				recentDeal: deals.length ? deals[0] : null,
-				competitorMin: comp.length ? comp[0].price : null,
+				recentDeal: deal,
+				competitorMin: null,
 				customerExpect: this.customerExpect || null
 			})
+		},
+		historyDealPrice(productId) {
+			const customerId = this.contextCustomerId()
+			if (customerId) {
+				const customerDeal = db.list(T.QUOTE_ITEM, { productId, customerId, status: 'done' }, 'updateTime', true)
+					.filter(isEffectiveQuoteItem)
+				if (customerDeal.length) return Number(customerDeal[0].price) || null
+			}
+			const deals = recentDealPrices(productId, 1)
+			return deals.length ? deals[0] : null
 		},
 		pickCompetitor(e) {
 			const c = this.competitors[e.detail.value]
@@ -195,6 +232,15 @@ export default {
 				vm.addProduct(p, price)
 				uni.navigateBack()
 			}
+		},
+		goPriceQuery(p = null) {
+			const params = []
+			if (p && p._id) params.push(`productId=${encodeURIComponent(p._id)}`)
+			const customerId = this.contextCustomerId()
+			const customerName = this.contextCustomerName()
+			if (customerId) params.push(`customerId=${encodeURIComponent(customerId)}`)
+			if (customerName) params.push(`customerName=${encodeURIComponent(customerName)}`)
+			uni.navigateTo({ url: '/pages/price/query' + (params.length ? `?${params.join('&')}` : '') })
 		}
 	}
 }
@@ -202,7 +248,8 @@ export default {
 
 <style lang="scss" scoped>
 .search-bar { padding: 20rpx 24rpx; background: #fff; }
-.search-input { background: #f3f4f6; border-radius: 999rpx; padding: 18rpx 32rpx; font-size: 28rpx; }
+.search-input { flex: 1; min-width: 0; background: #f3f4f6; border-radius: 999rpx; padding: 18rpx 32rpx; font-size: 28rpx; }
+.query-btn { width: 150rpx; padding: 0 12rpx; }
 .prod { margin: 16rpx 24rpx; }
 .rec-box { background: #eff6ff; border-radius: 12rpx; padding: 16rpx 20rpx; }
 .history-line { display: flex; flex-direction: row; align-items: center; gap: 18rpx; padding: 12rpx 0; border-bottom: 1rpx dashed #edf1f6; }

@@ -94,6 +94,7 @@ export default {
 			const base = [
 				{ name: '客户跟进', icon: 'i-phone', bg: '#e0edff', url: '/pages/follow/index' },
 				{ name: '报价单', icon: 'i-quote', bg: '#dcfce7', url: '/pages/quote/list' },
+				{ name: '价格查询', icon: 'i-search', bg: '#eef2ff', url: '/pages/price/query' },
 				{ name: '产品信息', icon: 'i-product', bg: '#fef3c7', url: '/pages/product/list' },
 				{ name: '采购管理', icon: 'i-truck', bg: '#ede9fe', url: '/pages/purchase/list' },
 				{ name: '客户档案', icon: 'i-users', bg: '#e0edff', url: '/pages/archive/customer' },
