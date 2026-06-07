@@ -1,10 +1,13 @@
 <template>
 	<view class="page">
 		<global-stats />
-		<view class="tabs">
-			<view class="tab-item" :class="{ on: tab === 'all' }" @click="tab = 'all'; applyFilter()">全部</view>
-			<view class="tab-item" :class="{ on: tab === 'unread' }" @click="tab = 'unread'; applyFilter()">未读</view>
-			<view class="tab-item" :class="{ on: tab === 'read' }" @click="tab = 'read'; applyFilter()">已读</view>
+		<view class="message-toolbar">
+			<view class="tabs">
+				<view class="tab-item" :class="{ on: tab === 'all' }" @click="tab = 'all'; applyFilter()">全部</view>
+				<view class="tab-item" :class="{ on: tab === 'unread' }" @click="tab = 'unread'; applyFilter()">未读</view>
+				<view class="tab-item" :class="{ on: tab === 'read' }" @click="tab = 'read'; applyFilter()">已读</view>
+			</view>
+			<button class="btn btn-sm compose-btn" @click="compose">写信</button>
 		</view>
 		<view class="empty" v-if="!list.length">暂无消息</view>
 		<view class="card-tight card msg" v-for="m in list" :key="m._id" @click="open(m)">
@@ -48,6 +51,9 @@ export default {
 			else if (this.tab === 'read') this.list = this.all.filter((m) => m.read)
 			else this.list = this.all
 		},
+		compose() {
+			uni.navigateTo({ url: '/pages/message/chat?compose=1' })
+		},
 		open(m) {
 			if (!m.read) { markRead(m._id); m.read = true; this.applyFilter() }
 			if (m.type === 'request' && this.session.role === ROLE.CUSTOMER) {
@@ -55,7 +61,15 @@ export default {
 			} else if (m.type === 'request' && m.refId) {
 				uni.navigateTo({ url: '/pages/admin/request-detail?id=' + m.refId })
 			} else if (m.threadId) {
-				uni.navigateTo({ url: '/pages/message/chat?thread=' + m.threadId + '&to=' + (m.fromId || '') })
+				const toId = m.fromId === this.session.id ? (m.toId || '') : (m.fromId || '')
+				const toRole = m.fromId === this.session.id ? (m.toRole || '') : (m.fromRole || '')
+				const toName = m.fromId === this.session.id ? (m.toName || '') : (m.fromName || '')
+				uni.navigateTo({
+					url: '/pages/message/chat?thread=' + encodeURIComponent(m.threadId) +
+						'&to=' + encodeURIComponent(toId) +
+						'&toRole=' + encodeURIComponent(toRole) +
+						'&toName=' + encodeURIComponent(toName)
+				})
 			} else if (m.type === 'quote' && m.refId && this.session.role !== ROLE.CUSTOMER) {
 				uni.navigateTo({ url: '/pages/quote/detail?id=' + m.refId })
 			}
@@ -67,7 +81,9 @@ export default {
 <style lang="scss" scoped>
 .msg { margin: 16rpx 24rpx; }
 .dot { width: 16rpx; height: 16rpx; border-radius: 50%; background: #ef4444; }
-.tabs { display: flex; background: #fff; padding: 20rpx 24rpx; gap: 16rpx; border-bottom: 1rpx solid #edf1f6; }
+.message-toolbar { display: flex; align-items: center; gap: 16rpx; background: #fff; padding: 20rpx 24rpx; border-bottom: 1rpx solid #edf1f6; }
+.tabs { display: flex; flex: 1; gap: 16rpx; }
 .tab-item { padding: 12rpx 28rpx; border-radius: 999rpx; font-size: 26rpx; color: #6b7280; background: #f3f4f6; }
 .tab-item.on { background: #2563eb; color: #fff; font-weight: 600; }
+.compose-btn { flex: none; margin: 0; }
 </style>

@@ -1,6 +1,6 @@
 /**
  * 站内信 / 通知
- * message: { toType:'employee'|'user', toId, role, fromId, fromName, title, content, type, refId, threadId, read, createTime }
+ * message: { toType:'employee'|'user', toId, toRole, toName, fromId, fromName, title, content, type, refId, threadId, read, createTime }
  */
 import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
@@ -56,9 +56,19 @@ export function threadMessages(threadId) {
 	return db.list(T.MESSAGE, { threadId }, 'createTime', false)
 }
 
+export function manualThreadId(fromId, toId) {
+	return 'manual_' + [fromId, toId].filter(Boolean).sort().join('_')
+}
+
 export function postThread(threadId, fromSession, toId, content) {
+	const target = typeof toId === 'object' ? toId : { id: toId }
 	return db.insert(T.MESSAGE, {
-		toType: 'user', toId, threadId, content,
+		toType: target.toType || 'user',
+		toId: target.id || '',
+		toRole: target.role || '',
+		toName: target.name || '',
+		threadId,
+		content,
 		title: '站内信', type: 'chat',
 		fromId: fromSession.id, fromName: fromSession.name,
 		fromRole: fromSession.role, read: false
