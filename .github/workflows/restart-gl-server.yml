@@ -1,0 +1,162 @@
+name: Restart gl.oksja.cn server
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Diagnose or restart Nginx and backend
+        required: true
+        default: restart
+        type: choice
+        options:
+          - diagnose
+          - restart
+
+env:
+  DOMAIN: gl.oksja.cn
+  BACKEND_PORT: 9090
+
+jobs:
+  restart:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Restart services on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          script_stop: false
+          envs: DOMAIN,BACKEND_PORT
+          script: |
+            set -u
+
+            MODE="${{ inputs.mode }}"
+            DOMAIN="$DOMAIN"
+            BACKEND_PORT="$BACKEND_PORT"
+
+            echo "mode=$MODE"
+            echo "domain=$DOMAIN"
+            echo "backend_port=$BACKEND_PORT"
+            echo "time=$(date '+%Y-%m-%d %H:%M:%S %z')"
+
+            show_state() {
+              echo "== nginx =="
+              if command -v nginx >/dev/null 2>&1; then
+                nginx -t || true
+              else
+                echo "nginx command not found"
+              fi
+              systemctl is-active nginx 2>/dev/null || service nginx status 2>/dev/null || true
+
+              echo "== ports =="
+              ss -ltnp 2>/dev/null | grep -E ":(80|443|$BACKEND_PORT)[[:space:]]" || true
+
+              echo "== backend process candidates =="
+              ps -eo pid,ppid,etime,cmd --sort=pid 2>/dev/null \
+                | grep -Ei "java|node|pm2|uvicorn|gunicorn|sqms|employee|quote|backend" \
+                | grep -v grep || true
+
+              echo "== local backend probe =="
+              curl -sS -m 8 -o /tmp/codex_backend_login.out -w "login_http=%{http_code} size=%{size_download}\n" "http://127.0.0.1:$BACKEND_PORT/sqms/auth/login" || true
+              cat /tmp/codex_backend_login.out 2>/dev/null || true
+              rm -f /tmp/codex_backend_login.out
+
+              echo "== public probes =="
+              curl -k -sS -m 10 -o /dev/null -w "front_http=%{http_code} size=%{size_download}\n" "https://$DOMAIN/" || true
+              curl -k -sS -m 10 -o /dev/null -w "login_http=%{http_code} size=%{size_download}\n" "https://$DOMAIN/sqms/auth/login" || true
+            }
+
+            find_backend_pid() {
+              ss -ltnp 2>/dev/null \
+                | awk -v port=":$BACKEND_PORT" '$4 ~ port { print $NF }' \
+                | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' \
+                | head -n 1
+            }
+
+            find_unit_for_pid() {
+              pid="$1"
+              systemctl status "$pid" 2>/dev/null \
+                | sed -n 's/^.* \([^ ]*\.service\) .*/\1/p; s/^● \([^ ]*\.service\).*/\1/p' \
+                | head -n 1
+            }
+
+            restart_nginx() {
+              echo "== restart nginx =="
+              if command -v nginx >/dev/null 2>&1; then
+                nginx -t || return 1
+              fi
+              systemctl restart nginx 2>/dev/null \
+                || service nginx restart 2>/dev/null \
+                || systemctl reload nginx 2>/dev/null \
+                || service nginx reload 2>/dev/null \
+                || nginx -s reload 2>/dev/null \
+                || true
+              systemctl is-active nginx 2>/dev/null || service nginx status 2>/dev/null || true
+            }
+
+            restart_backend() {
+              echo "== restart backend =="
+              pid="$(find_backend_pid || true)"
+              if [ -n "$pid" ]; then
+                echo "backend_pid=$pid"
+                unit="$(find_unit_for_pid "$pid" || true)"
+                if [ -n "$unit" ]; then
+                  echo "backend_unit=$unit"
+                  systemctl restart "$unit" 2>/dev/null || service "${unit%.service}" restart 2>/dev/null || true
+                  sleep 5
+                  systemctl status "$unit" --no-pager -l 2>/dev/null | tail -n 30 || true
+                  return 0
+                fi
+
+                cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+                cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || pwd)"
+                echo "backend_cmd=$cmdline"
+                echo "backend_cwd=$cwd"
+                if echo "$cmdline" | grep -Eq "java .* -jar|java .*\.jar|node "; then
+                  echo "$cmdline" > /tmp/codex_backend_last_cmd.txt
+                  kill "$pid" 2>/dev/null || true
+                  sleep 4
+                  if kill -0 "$pid" 2>/dev/null; then
+                    kill -9 "$pid" 2>/dev/null || true
+                  fi
+                  sleep 2
+                  cd "$cwd" || true
+                  nohup sh -c "$cmdline" > "$cwd/codex-backend-restart.log" 2>&1 &
+                  sleep 5
+                  echo "backend restarted from saved command"
+                  return 0
+                fi
+              else
+                echo "No process is listening on port $BACKEND_PORT"
+              fi
+
+              echo "== backend service candidates =="
+              systemctl list-units --type=service --all --no-pager --plain 2>/dev/null \
+                | awk '{print $1}' \
+                | grep -Ei "employee|sqms|quote|backend" || true
+              candidate="$(systemctl list-units --type=service --all --no-pager --plain 2>/dev/null \
+                | awk '{print $1}' \
+                | grep -Ei "employee|sqms|quote|backend" \
+                | head -n 1 || true)"
+              if [ -n "$candidate" ]; then
+                echo "restart_candidate=$candidate"
+                systemctl restart "$candidate" 2>/dev/null || service "${candidate%.service}" restart 2>/dev/null || true
+                sleep 5
+                return 0
+              fi
+
+              echo "No backend service candidate was restarted"
+            }
+
+            if [ "$MODE" = "diagnose" ]; then
+              show_state
+              exit 0
+            fi
+
+            show_state
+            restart_nginx
+            restart_backend
+            show_state
