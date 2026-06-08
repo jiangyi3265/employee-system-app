@@ -148,7 +148,8 @@ jobs:
             chmod 644 "$CERT_FULLCHAIN"
             chmod 600 "$CERT_KEY"
 
-            openssl x509 -in "$CERT_FULLCHAIN" -noout -subject -issuer -dates -ext subjectAltName
+            openssl x509 -in "$CERT_FULLCHAIN" -noout -subject -issuer -dates
+            openssl x509 -in "$CERT_FULLCHAIN" -noout -text | sed -n '/Subject Alternative Name/,+1p' || true
 
             BACKUP="$CONF.bak.$(date +%Y%m%d%H%M%S)"
             cp "$CONF" "$BACKUP"
