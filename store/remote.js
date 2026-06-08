@@ -1,15 +1,28 @@
-const DEFAULT_BASE_URL = typeof window !== 'undefined' && window.location?.origin
-	? window.location.origin
-	: 'http://localhost:8080'
+const PRODUCTION_BASE_URL = 'https://www.wsh1798.cn'
+const h5Origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : ''
+const DEFAULT_BASE_URL = h5Origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(h5Origin)
+	? h5Origin
+	: PRODUCTION_BASE_URL
 
 export const API_BASE_KEY = 'sqms_api_base'
 
+function normalizeBaseUrl(url) {
+	return String(url || '').trim().replace(/\/+$/, '')
+}
+
+function isLocalDebugBase(url) {
+	return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(url)
+}
+
 export function getApiBase() {
-	return uni.getStorageSync(API_BASE_KEY) || DEFAULT_BASE_URL
+	const saved = normalizeBaseUrl(uni.getStorageSync(API_BASE_KEY))
+	if (saved && !isLocalDebugBase(saved)) return saved
+	if (saved) uni.removeStorageSync(API_BASE_KEY)
+	return DEFAULT_BASE_URL
 }
 
 export function setApiBase(url) {
-	uni.setStorageSync(API_BASE_KEY, url || DEFAULT_BASE_URL)
+	uni.setStorageSync(API_BASE_KEY, normalizeBaseUrl(url) || DEFAULT_BASE_URL)
 }
 
 export function apiRequest(path, options = {}) {
