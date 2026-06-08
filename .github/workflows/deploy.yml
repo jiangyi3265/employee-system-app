@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TARGET_DIR: /www/wwwroot/gl.oksja.cn
+  TARGET_DIR: /www/wwwroot/www.wsh1798.cn
   ARCHIVE_NAME: frontend-h5-dist.tar.gz
   BACKEND_PORT: 9090
 
@@ -76,7 +76,7 @@ jobs:
             rm -f "$ARCHIVE"
             chown -R www:www "$TARGET_DIR" 2>/dev/null || true
 
-            CONF="/www/server/panel/vhost/nginx/gl.oksja.cn.conf"
+            CONF="/www/server/panel/vhost/nginx/www.wsh1798.cn.conf"
             BACKEND_PORT="${{ env.BACKEND_PORT }}"
             if [ -f "$CONF" ]; then
               PYTHON_BIN="$(command -v python3 || command -v python || true)"
@@ -138,8 +138,8 @@ jobs:
                 if match:
                     include_patterns.append(match.group(1).strip().strip("'\""))
             include_patterns.extend([
-                "/www/server/panel/vhost/nginx/proxy/gl.oksja.cn/*.conf",
-                "/www/server/panel/vhost/rewrite/gl.oksja.cn.conf",
+                "/www/server/panel/vhost/nginx/proxy/www.wsh1798.cn/*.conf",
+                "/www/server/panel/vhost/rewrite/www.wsh1798.cn.conf",
             ])
 
             include_files = []

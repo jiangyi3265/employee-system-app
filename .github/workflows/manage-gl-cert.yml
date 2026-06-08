@@ -1,4 +1,4 @@
-name: Manage gl.oksja.cn certificate
+name: Manage www.wsh1798.cn certificate
 
 on:
   workflow_dispatch:
@@ -13,11 +13,11 @@ on:
           - issue
 
 env:
-  DOMAIN: gl.oksja.cn
-  WEBROOT: /www/wwwroot/gl.oksja.cn
-  NGINX_CONF: /www/server/panel/vhost/nginx/gl.oksja.cn.conf
-  BT_CERT_DIR: /www/server/panel/vhost/cert/gl.oksja.cn
-  CERT_EMAIL: admin@oksja.cn
+  DOMAIN: www.wsh1798.cn
+  WEBROOT: /www/wwwroot/www.wsh1798.cn
+  NGINX_CONF: /www/server/panel/vhost/nginx/www.wsh1798.cn.conf
+  BT_CERT_DIR: /www/server/panel/vhost/cert/www.wsh1798.cn
+  CERT_EMAIL: admin@wsh1798.cn
 
 jobs:
   certificate:
@@ -76,7 +76,7 @@ jobs:
                 echo "No readable ssl_certificate path found"
               fi
               echo "== site include files mentioning sqms/ssl =="
-              find /www/server/panel/vhost/nginx -path "*gl.oksja.cn*" -type f -name "*.conf" -maxdepth 6 2>/dev/null \
+              find /www/server/panel/vhost/nginx -path "*www.wsh1798.cn*" -type f -name "*.conf" -maxdepth 6 2>/dev/null \
                 -exec sh -c 'for f; do echo "-- $f"; grep -nE "sqms|ssl_certificate|server_name|include" "$f" || true; done' sh {} + || true
             }
 
@@ -125,7 +125,7 @@ jobs:
             if [ -d /etc/letsencrypt/live ]; then
               echo "== installing certbot deploy hook =="
               mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-              cat > /etc/letsencrypt/renewal-hooks/deploy/gl-oksja-cn-bt-copy.sh <<HOOK
+              cat > /etc/letsencrypt/renewal-hooks/deploy/www-wsh1798-cn-bt-copy.sh <<HOOK
             #!/bin/sh
             set -e
 
@@ -142,7 +142,7 @@ jobs:
               nginx -t && (systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true)
             fi
             HOOK
-              chmod +x /etc/letsencrypt/renewal-hooks/deploy/gl-oksja-cn-bt-copy.sh
+              chmod +x /etc/letsencrypt/renewal-hooks/deploy/www-wsh1798-cn-bt-copy.sh
             fi
 
             chmod 644 "$CERT_FULLCHAIN"

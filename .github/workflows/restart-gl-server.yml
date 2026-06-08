@@ -1,4 +1,4 @@
-name: Restart gl.oksja.cn server
+name: Restart www.wsh1798.cn server
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
           - restart
 
 env:
-  DOMAIN: gl.oksja.cn
+  DOMAIN: www.wsh1798.cn
   BACKEND_PORT: 9090
 
 jobs:
