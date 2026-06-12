@@ -14,15 +14,20 @@ function isLocalDebugBase(url) {
 	return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(url)
 }
 
+function isHttpsBase(url) {
+	return /^https:\/\//i.test(url)
+}
+
 export function getApiBase() {
 	const saved = normalizeBaseUrl(uni.getStorageSync(API_BASE_KEY))
-	if (saved && !isLocalDebugBase(saved)) return saved
+	if (saved && !isLocalDebugBase(saved) && isHttpsBase(saved)) return saved
 	if (saved) uni.removeStorageSync(API_BASE_KEY)
 	return DEFAULT_BASE_URL
 }
 
 export function setApiBase(url) {
-	uni.setStorageSync(API_BASE_KEY, normalizeBaseUrl(url) || DEFAULT_BASE_URL)
+	const next = normalizeBaseUrl(url)
+	uni.setStorageSync(API_BASE_KEY, next && (isLocalDebugBase(next) || isHttpsBase(next)) ? next : DEFAULT_BASE_URL)
 }
 
 export function apiRequest(path, options = {}) {
