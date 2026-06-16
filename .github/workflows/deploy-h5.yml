@@ -1,0 +1,124 @@
+name: Deploy H5 Frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-h5-frontend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy H5 frontend
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_PORT: ${{ secrets.SERVER_PORT }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+      SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+      APP_H5_DEPLOY_DIR: ${{ secrets.APP_H5_DEPLOY_DIR }}
+      APP_H5_AFTER_DEPLOY_COMMAND: ${{ secrets.APP_H5_AFTER_DEPLOY_COMMAND }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Build H5
+        shell: bash
+        env:
+          UNI_INPUT_DIR: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          npx uni build -p h5
+          test -d dist/build/h5
+
+      - name: Pack H5 dist
+        shell: bash
+        run: tar -czf app-h5-dist.tar.gz -C dist/build/h5 .
+
+      - name: Deploy H5 dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          SSH_HOST="${SSH_HOST:-${SERVER_HOST:-}}"
+          SSH_PORT="${SSH_PORT:-${SERVER_PORT:-22}}"
+          SSH_USER="${SSH_USER:-${SERVER_USER:-}}"
+          SSH_PASSWORD="${SSH_PASSWORD:-${SERVER_PASSWORD:-}}"
+          DEPLOY_DIR="${APP_H5_DEPLOY_DIR:-/www/wwwroot/www.wsh1798.cn}"
+          ARCHIVE="app-h5-dist-${GITHUB_SHA}.tar.gz"
+          REMOTE_ARCHIVE="/tmp/$ARCHIVE"
+          SSH_TARGET="${SSH_USER}@${SSH_HOST}"
+
+          : "${SSH_HOST:?Missing secret SSH_HOST}"
+          : "${SSH_USER:?Missing secret SSH_USER}"
+
+          SSH_COMMON=(-p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=20 -o ServerAliveCountMax=3)
+          SCP_COMMON=(-P "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=20 -o ServerAliveCountMax=3)
+
+          if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            SSH_CMD=(ssh -i ~/.ssh/deploy_key "${SSH_COMMON[@]}")
+            SCP_CMD=(scp -i ~/.ssh/deploy_key "${SCP_COMMON[@]}")
+          else
+            : "${SSH_PASSWORD:?Missing secret SSH_PRIVATE_KEY or SSH_PASSWORD}"
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+            export SSHPASS="$SSH_PASSWORD"
+            SSH_CMD=(sshpass -e ssh "${SSH_COMMON[@]}")
+            SCP_CMD=(sshpass -e scp "${SCP_COMMON[@]}")
+          fi
+
+          "${SSH_CMD[@]}" "$SSH_TARGET" "mkdir -p '$DEPLOY_DIR'"
+
+          "${SCP_CMD[@]}" app-h5-dist.tar.gz "$SSH_TARGET:$REMOTE_ARCHIVE"
+
+          "${SSH_CMD[@]}" "$SSH_TARGET" 'bash -s' -- \
+            "$DEPLOY_DIR" \
+            "$REMOTE_ARCHIVE" \
+            "${APP_H5_AFTER_DEPLOY_COMMAND:-}" <<'EOF'
+          set -euo pipefail
+          DEPLOY_DIR="$1"
+          REMOTE_ARCHIVE="$2"
+          AFTER_DEPLOY_COMMAND="$3"
+
+          mkdir -p "$DEPLOY_DIR"
+          find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 ! -name ".user.ini" -exec rm -rf {} +
+          tar -xzf "$REMOTE_ARCHIVE" -C "$DEPLOY_DIR"
+          rm -f "$REMOTE_ARCHIVE"
+          chown -R www:www "$DEPLOY_DIR" 2>/dev/null || true
+
+          if [ -n "$AFTER_DEPLOY_COMMAND" ]; then
+            bash -lc "$AFTER_DEPLOY_COMMAND"
+          fi
+
+          ls -lh "$DEPLOY_DIR/index.html"
+          EOF
