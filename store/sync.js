@@ -28,6 +28,9 @@ export async function syncFromRemote() {
 		return count + (Array.isArray(data[table]) ? data[table].length : 0)
 	}, 0)
 	if (remoteCount === 0) {
+		TABLES.forEach((table) => {
+			db.setAll(table, [], true)
+		})
 		uni.setStorageSync(LAST_PULL_KEY, data.serverTime || Date.now())
 		return data
 	}
@@ -83,7 +86,7 @@ export async function bootstrapRemoteSync() {
 			return count + (Array.isArray(data[table]) ? data[table].length : 0)
 		}, 0)
 		if (remoteCount === 0) {
-			await syncAllToRemote()
+			return true
 		} else if (data.__preservedTables && Object.keys(data.__preservedTables).length) {
 			await pushTables(data.__preservedTables)
 		}
