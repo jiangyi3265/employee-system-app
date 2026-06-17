@@ -31,7 +31,7 @@
 				</view>
 
 				<button class="btn btn-block mt-l" @click="doLogin">登录</button>
-				<button class="btn btn-ghost btn-block mt-m" @click="doWechat">微信一键登录</button>
+				<button class="btn btn-ghost btn-block mt-m" @click="doWechat">{{ wechatButtonText }}</button>
 
 				<view class="row-between mt-m">
 					<text class="t-muted" v-if="tab === 'customer'" @click="goRegister">客户注册</text>
@@ -90,6 +90,9 @@ export default {
 	computed: {
 		contactList() {
 			return db.list(T.EMPLOYEE).filter((e) => !e.disabled)
+		},
+		wechatButtonText() {
+			return this.tab === 'customer' ? '微信一键注册/登录' : '微信一键登录'
 		},
 		demoList() {
 			if (this.tab === 'employee') {

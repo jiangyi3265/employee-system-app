@@ -107,7 +107,7 @@ function cacheRemoteUser(role, user, password = '') {
 }
 
 /**
- * 微信小程序一键登录：首次需输入手机号 + 密码完成绑定。
+ * 微信小程序一键登录：客户首次自动注册，员工首次需手机号 + 密码绑定。
  */
 export async function loginWechat(role, options = {}) {
 	try {
