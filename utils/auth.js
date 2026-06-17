@@ -3,6 +3,7 @@
  */
 import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
+import { loginWechatRemote } from '@/store/remote.js'
 
 const SESSION_KEY = 'sqms_session'
 
@@ -62,21 +63,66 @@ export function loginCustomer(phone, password) {
 	return { ok: true, session, user: c }
 }
 
-/**
- * 模拟微信一键登录：取第一个对应角色账号（仅演示）
- */
-export function loginWechat(role) {
+function requestWechatLoginCode() {
+	return new Promise((resolve, reject) => {
+		if (typeof uni === 'undefined' || typeof uni.login !== 'function') {
+			reject(new Error('请在微信小程序中使用微信登录'))
+			return
+		}
+		uni.login({
+			provider: 'weixin',
+			success: (res) => {
+				if (res && res.code) {
+					resolve(res.code)
+				} else {
+					reject(new Error('微信未返回登录 code'))
+				}
+			},
+			fail: (err) => {
+				reject(new Error((err && err.errMsg) || '微信登录授权失败'))
+			}
+		})
+	})
+}
+
+function cacheRemoteUser(role, user, password = '') {
+	if (!user || !user._id) return null
 	const table = role === ROLE.CUSTOMER ? T.CUSTOMER : T.EMPLOYEE
-	let user
-	if (role === ROLE.CUSTOMER) {
-		user = db.find(T.CUSTOMER, { approved: true })
-	} else {
-		user = db.find(T.EMPLOYEE, {})
+	const current = db.get(table, user._id)
+	const next = { ...(current || {}), ...user }
+	if (current && current.password) {
+		next.password = current.password
+	} else if (password) {
+		next.password = password
 	}
-	if (!user) return { ok: false, msg: '暂无可用演示账号' }
-	const session = { role: user.role || role, id: user._id, name: user.name }
-	setSession(session)
-	return { ok: true, session, user }
+	const list = db.list(table)
+	const idx = list.findIndex((item) => item._id === user._id)
+	if (idx === -1) {
+		list.push(next)
+	} else {
+		list[idx] = next
+	}
+	db.setAll(table, list, true)
+	return next
+}
+
+/**
+ * 微信小程序一键登录：首次需输入手机号 + 密码完成绑定。
+ */
+export async function loginWechat(role, options = {}) {
+	try {
+		const code = await requestWechatLoginCode()
+		const data = await loginWechatRemote(role, code, options.phone || '', options.password || '')
+		const session = data.session
+		if (!session || !session.id) {
+			return { ok: false, msg: '服务器未返回登录会话' }
+		}
+		setSession(session)
+		const cachedUser = cacheRemoteUser(session.role || role, data.user, options.password || '')
+		return { ok: true, session, user: cachedUser || data.user }
+	} catch (e) {
+		return { ok: false, msg: (e && e.message) || '微信登录失败' }
+	}
 }
 
 /** 客户注册（待审核） */

@@ -119,9 +119,12 @@ export default {
 			toast('登录成功', 'success')
 			setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 300)
 		},
-		doWechat() {
+		async doWechat() {
 			const role = this.tab === 'employee' ? ROLE.EMPLOYEE : ROLE.CUSTOMER
-			const res = loginWechat(role)
+			const res = await loginWechat(role, {
+				phone: this.phone,
+				password: this.password
+			})
 			if (!res.ok) return toast(res.msg)
 			toast('登录成功', 'success')
 			setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 300)

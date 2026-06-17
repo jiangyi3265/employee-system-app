@@ -71,6 +71,13 @@ export function loginRemote(role, phone, password) {
 	})
 }
 
+export function loginWechatRemote(role, code, phone = '', password = '') {
+	return apiRequest('/sqms/auth/login/wechat', {
+		method: 'POST',
+		data: { role, code, phone, password }
+	})
+}
+
 export function registerRemote(data) {
 	return apiRequest('/sqms/auth/register', {
 		method: 'POST',
