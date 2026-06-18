@@ -41,7 +41,7 @@ export default {
 	data() { return { session: {}, all: [], list: [], tab: 'all' } },
 	computed: {
 		canGroupSend() {
-			return this.session.role === ROLE.ADMIN || this.session.role === ROLE.EMPLOYEE
+			return this.session.role === ROLE.ADMIN
 		}
 	},
 	onShow() {
@@ -80,14 +80,17 @@ export default {
 			} else if (m.type === 'request' && m.refId) {
 				uni.navigateTo({ url: '/pages/admin/request-detail?id=' + m.refId })
 			} else if (m.threadId) {
-				const toId = m.fromId === this.session.id ? (m.toId || '') : (m.fromId || '')
-				const toRole = m.fromId === this.session.id ? (m.toRole || '') : (m.fromRole || '')
-				const toName = m.fromId === this.session.id ? (m.toName || '') : (m.fromName || '')
+				const sentGroup = m.fromId === this.session.id && (m.groupType || m.toType === 'admins')
+				const toId = sentGroup ? '' : (m.fromId === this.session.id ? (m.toId || '') : (m.fromId || ''))
+				const toRole = sentGroup ? 'group' : (m.fromId === this.session.id ? (m.toRole || '') : (m.fromRole || ''))
+				const toName = sentGroup ? (m.groupName || m.toName || '管理员') : (m.fromId === this.session.id ? (m.toName || '') : (m.fromName || ''))
+				const toGroup = sentGroup ? (m.groupType || 'admins') : ''
 				uni.navigateTo({
 					url: '/pages/message/chat?thread=' + encodeURIComponent(m.threadId) +
 						'&to=' + encodeURIComponent(toId) +
 						'&toRole=' + encodeURIComponent(toRole) +
-						'&toName=' + encodeURIComponent(toName)
+						'&toName=' + encodeURIComponent(toName) +
+						'&toGroup=' + encodeURIComponent(toGroup)
 				})
 			} else if (m.type === 'quote' && m.refId && this.session.role !== ROLE.CUSTOMER) {
 				uni.navigateTo({ url: '/pages/quote/detail?id=' + m.refId })

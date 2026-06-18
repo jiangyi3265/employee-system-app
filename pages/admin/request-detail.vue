@@ -69,7 +69,7 @@ import { db } from '@/store/db.js'
 import { T, REQUEST_STATUS_LABEL, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
-import { sendToUser, notifyEmployees } from '@/utils/message.js'
+import { sendToUser, notifyAdmins } from '@/utils/message.js'
 import { recommendQuote, recentDealPrices, competitorQuotes, quoteAuditPatch } from '@/utils/pricing.js'
 import { refreshCustomerOwner, refreshOrderDealStatus } from '@/utils/stats.js'
 import { addOrderSystemFollow } from '@/utils/follow.js'
@@ -343,7 +343,7 @@ export default {
 					})
 					addOrderSystemFollow(existing._id, `${this.session.name} 重新同步客户报价申请明细，已带入客户预期价`, this.session)
 					if (specialCount) {
-						notifyEmployees('低价报价待审核', `${this.session.name} 同步客户报价申请后，有 ${specialCount} 项报价低于最低销售价`, 'quote', existing._id, {
+						notifyAdmins('低价报价待审核', `${this.session.name} 同步客户报价申请后，有 ${specialCount} 项报价低于最低销售价`, 'quote', existing._id, {
 							fromId: this.session.id,
 							fromName: this.session.name,
 							fromRole: this.session.role,
@@ -377,7 +377,7 @@ export default {
 			addOrderSystemFollow(quoteOrder._id, `${this.session.name} 接单客户报价申请，已转入报价单处理`, this.session)
 			if (specialCount) {
 				addOrderSystemFollow(quoteOrder._id, `${this.session.name} 接单时带入 ${specialCount} 项低于最低销售价的报价，按报价单低价审核流程处理`, this.session)
-				notifyEmployees('低价报价待审核', `${this.session.name} 接单客户报价申请后，有 ${specialCount} 项报价低于最低销售价`, 'quote', quoteOrder._id, {
+				notifyAdmins('低价报价待审核', `${this.session.name} 接单客户报价申请后，有 ${specialCount} 项报价低于最低销售价`, 'quote', quoteOrder._id, {
 					fromId: this.session.id,
 					fromName: this.session.name,
 					fromRole: this.session.role,
@@ -434,7 +434,7 @@ export default {
 				adminReviewSubmitterName: this.session.name
 			})
 			addOrderSystemFollow(quoteOrder._id, `${this.session.name} 提交低价管理员审核，低于最低销售价 ${specialCount} 项`, this.session)
-			notifyEmployees('低价报价待管理员审核', `${this.session.name} 审核客户报价申请时提交了 ${specialCount} 项低价报价，请管理员审核`, 'quote', quoteOrder._id, {
+			notifyAdmins('低价报价待管理员审核', `${this.session.name} 审核客户报价申请时提交了 ${specialCount} 项低价报价，请管理员审核`, 'quote', quoteOrder._id, {
 				fromId: this.session.id,
 				fromName: this.session.name,
 				fromRole: this.session.role,

@@ -63,6 +63,21 @@ import { fmtDate } from '@/utils/format.js'
 import { db } from '@/store/db.js'
 import { T, ROLE, ROLE_LABEL } from '@/store/schema.js'
 
+const GROUP_TARGETS = {
+	admins: { group: 'admins', name: '管理员' },
+	internal: { group: 'internal', name: '内部员工/管理员' },
+	customers: { group: 'customers', name: '全部客户' }
+}
+
+function safeDecode(value) {
+	const text = String(value || '')
+	try {
+		return decodeURIComponent(text)
+	} catch (e) {
+		return text
+	}
+}
+
 export default {
 	data() {
 		return {
@@ -86,7 +101,7 @@ export default {
 			return this.compose || !this.threadId
 		},
 		canGroupSend() {
-			return this.session.role === ROLE.ADMIN || this.session.role === ROLE.EMPLOYEE
+			return this.session.role === ROLE.ADMIN
 		},
 		recipientText() {
 			if (this.toGroup) return `群发：${this.toName}`
@@ -116,13 +131,14 @@ export default {
 		this.session = s
 		this.loadRecipients()
 		if (q) {
-			this.threadId = q.thread || ''
-			this.toId = q.to || ''
-			this.toRole = q.toRole || ''
-			this.toName = q.toName || ''
-			this.toGroup = q.toGroup || ''
-			this.compose = !!q.compose
+			this.threadId = safeDecode(q.thread)
+			this.toId = safeDecode(q.to)
+			this.toRole = safeDecode(q.toRole)
+			this.toName = safeDecode(q.toName)
+			this.toGroup = safeDecode(q.toGroup)
+			this.compose = q.compose === true || q.compose === '1' || q.compose === 'true'
 			this.resolveRecipient()
+			this.applyDefaultRecipient()
 			this.load()
 		}
 	},
@@ -150,6 +166,11 @@ export default {
 				this.recipients = employees
 				return
 			}
+			const adminGroup = { id: '__group_admins__', group: 'admins', role: 'group', name: '管理员', label: '群发：管理员', sub: '发送给所有管理员' }
+			if (this.session.role === ROLE.EMPLOYEE) {
+				this.recipients = [adminGroup].concat(employees.filter((e) => e.role === ROLE.ADMIN))
+				return
+			}
 			const groups = [
 				{ id: '__group_internal__', group: 'internal', role: 'group', name: '内部员工/管理员', label: '群发：内部员工/管理员', sub: '内部员工和管理员' },
 				{ id: '__group_customers__', group: 'customers', role: 'group', name: '全部客户', label: '群发：全部客户', sub: '所有已审核客户' }
@@ -164,6 +185,20 @@ export default {
 				label: `客户：${c.name}${c.company ? ' · ' + c.company : ''}`
 			}))
 			this.recipients = groups.concat(employees, customers)
+		},
+		applyDefaultRecipient() {
+			if (this.threadId || this.toId || this.toGroup || this.session.role !== ROLE.EMPLOYEE) return
+			this.setGroupTarget('admins')
+		},
+		setGroupTarget(group) {
+			const target = GROUP_TARGETS[group]
+			if (!target) return
+			this.threadId = ''
+			this.toId = ''
+			this.toRole = 'group'
+			this.toName = target.name
+			this.toGroup = target.group
+			this.messages = []
 		},
 		openRecipientPicker() {
 			this.recipientKw = ''
@@ -186,17 +221,9 @@ export default {
 			this.showRecipientPicker = false
 		},
 		composeGroup(group) {
-			const target = group === 'customers'
-				? { group: 'customers', name: '全部客户' }
-				: { group: 'internal', name: '内部员工/管理员' }
 			this.showActionMenu = false
 			this.compose = true
-			this.threadId = ''
-			this.toId = ''
-			this.toRole = 'group'
-			this.toName = target.name
-			this.toGroup = target.group
-			this.messages = []
+			this.setGroupTarget(group)
 		},
 		resolveRecipient() {
 			if (!this.toId) return
@@ -212,6 +239,11 @@ export default {
 		},
 		inferRecipientFromThread() {
 			if (!this.messages.length || this.toId) return
+			const sentGroup = this.messages.find((m) => m.fromId === this.session.id && (m.groupType || m.toType === 'admins'))
+			if (sentGroup) {
+				this.setGroupTarget(sentGroup.groupType || 'admins')
+				return
+			}
 			const peerMsg = this.messages.find((m) => m.fromId && m.fromId !== this.session.id) ||
 				this.messages.find((m) => m.toId && m.toId !== this.session.id)
 			if (!peerMsg) return

@@ -128,7 +128,7 @@ import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { refreshOrderDealStatus, refreshCustomerOwner, orderFinance } from '@/utils/stats.js'
 import { profitRate, quoteAuditPatch, isQuotableQuoteItem } from '@/utils/pricing.js'
 import { addOrderFollow, addOrderSystemFollow, followActor, orderFollows } from '@/utils/follow.js'
-import { notifyEmployees, sendToUser } from '@/utils/message.js'
+import { notifyAdmins, sendToUser } from '@/utils/message.js'
 
 export default {
 	data() {
@@ -437,7 +437,7 @@ export default {
 		},
 		notifySpecialPrice(item) {
 			if (!item.needsAdminReview) return
-			notifyEmployees('低价报价待审核', `${this.session.name} 对 ${item.productName} 报价 ${fmtMoney(item.price)}，低于最低销售价，需要管理员审核`, 'quote', this.id, {
+			notifyAdmins('低价报价待审核', `${this.session.name} 对 ${item.productName} 报价 ${fmtMoney(item.price)}，低于最低销售价，需要管理员审核`, 'quote', this.id, {
 				fromId: this.session.id,
 				fromName: this.session.name,
 				fromRole: this.session.role,
