@@ -4,13 +4,15 @@ import { T, ROLE } from '@/store/schema.js'
 export const PURCHASE_REQUEST_STATUS = {
 	PENDING: 'pending',
 	PRE: 'pre',
+	PURCHASED: 'purchased',
 	CONVERTED: 'converted'
 }
 
 export const PURCHASE_REQUEST_STATUS_LABEL = {
 	pending: '待采购处理',
 	pre: '已生成预采购',
-	converted: '已生成采购单'
+	purchased: '已采购',
+	converted: '已入库'
 }
 
 export function isPurchaseManager(session) {
@@ -36,9 +38,11 @@ export function refreshPurchaseRequestStatus(requestId) {
 	const items = db.list(T.PURCHASE_REQUEST_ITEM, { requestId })
 	if (!items.length) return null
 	const converted = items.filter((it) => it.status === PURCHASE_REQUEST_STATUS.CONVERTED).length
+	const purchased = items.filter((it) => it.status === PURCHASE_REQUEST_STATUS.PURCHASED).length
 	const pre = items.filter((it) => it.status === PURCHASE_REQUEST_STATUS.PRE).length
 	let status = PURCHASE_REQUEST_STATUS.PENDING
 	if (converted === items.length) status = PURCHASE_REQUEST_STATUS.CONVERTED
-	else if (converted || pre) status = PURCHASE_REQUEST_STATUS.PRE
+	else if (converted || purchased) status = PURCHASE_REQUEST_STATUS.PURCHASED
+	else if (pre) status = PURCHASE_REQUEST_STATUS.PRE
 	return db.update(T.PURCHASE_REQUEST, requestId, { status })
 }

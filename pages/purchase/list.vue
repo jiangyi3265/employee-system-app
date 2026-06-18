@@ -12,7 +12,7 @@
 		</view>
 
 		<view class="toolbar">
-			<input class="toolbar-search" v-model="kw" placeholder="搜索供应商 / 员工" @input="load" />
+			<input class="toolbar-search" v-model="kw" placeholder="搜索供应商 / 员工 / 客户" @input="load" />
 		</view>
 		<view class="filter-bar">
 			<picker :range="supplierOptions" :range-key="'name'" @change="pickSupplier">
@@ -32,9 +32,9 @@
 		<view class="list-card order" v-for="o in list" :key="o._id" @click="go(o._id)">
 			<view class="row-between">
 				<text class="t-title" style="font-size:30rpx;">{{ o.supplierName }}</text>
-				<text class="tag" :class="o.status === 'pre' ? 'tag-blue' : 'tag-green'">{{ o.status === 'pre' ? '预采购' : '采购单' }}</text>
+				<text class="tag" :class="purchaseTag(o.status)">{{ purchaseStatus(o.status) }}</text>
 			</view>
-			<text class="meta-line">采购员工：{{ o.employeeName || '-' }} · 明细 {{ itemCount(o._id) }} 项</text>
+			<text class="meta-line">采购员工：{{ o.employeeName || '-' }} · 需求客户：{{ o.customerName || '-' }} · 明细 {{ itemCount(o._id) }} 项</text>
 			<view class="row-between mt-s">
 				<text class="t-sub">{{ fmt(o.createTime) }} · 运费：{{ money(o.freight || 0) }}</text>
 				<text class="inline-action">查看详情</text>
@@ -71,6 +71,12 @@ export default {
 		fmt(t) { return fmtDate(t, true) },
 		money(n) { return fmtMoney(n) },
 		itemCount(orderId) { return db.count(T.PURCHASE_ITEM, { purchaseOrderId: orderId }) },
+		purchaseStatus(status) {
+			return { pre: '预采购', purchased: '已采购', approved: '采购单' }[status] || '采购单'
+		},
+		purchaseTag(status) {
+			return { pre: 'tag-blue', purchased: 'tag-orange', approved: 'tag-green' }[status] || 'tag-green'
+		},
 		pickSupplier(e) {
 			const s = this.supplierOptions[e.detail.value]
 			this.supplierId = s ? s._id : ''
@@ -105,7 +111,7 @@ export default {
 			const start = this.dateStart(this.startDate)
 			const end = this.dateEnd(this.endDate)
 			let list = this.all
-			if (kw) list = list.filter((o) => ((o.supplierName || '') + (o.employeeName || '')).indexOf(kw) >= 0)
+			if (kw) list = list.filter((o) => ((o.supplierName || '') + (o.employeeName || '') + (o.customerName || '')).indexOf(kw) >= 0)
 			if (this.supplierId) list = list.filter((o) => o.supplierId === this.supplierId)
 			list = list.filter((o) => (o.createTime || 0) >= start && (o.createTime || 0) <= end)
 			this.list = list

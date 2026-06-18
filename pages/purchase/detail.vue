@@ -2,7 +2,15 @@
 	<view class="page">
 		<global-stats />
 		<view class="card">
-			<text class="t-title mb-m">{{ isPrePurchase ? '预采购单信息' : '采购订单信息' }}</text>
+			<text class="t-title mb-m">{{ preFlow ? '预采购单信息' : '采购订单信息' }}</text>
+			<view class="field" v-if="form.customerName">
+				<text class="field-label">需求客户</text>
+				<text class="field-input">{{ form.customerName }}</text>
+			</view>
+			<view class="field" v-if="form.sourceEmployeeNames">
+				<text class="field-label">申请员工</text>
+				<text class="field-input">{{ form.sourceEmployeeNames }}</text>
+			</view>
 			<view class="field">
 				<text class="field-label">供应商*</text>
 				<view class="field-input row" @click="pickSupplier">
@@ -13,7 +21,7 @@
 				<text class="field-label">运费</text>
 				<input class="field-input" type="digit" v-model="form.freight" placeholder="0" @blur="allocateFreight(true)" />
 			</view>
-			<text class="t-muted mt-s">保存采购明细后，可按数量自动分摊单件运费并同步产品成本。</text>
+			<text class="t-muted mt-s">{{ preFlow ? '预采购单可先核价，采购入库后再同步产品成本。' : '保存采购明细后，可按数量自动分摊单件运费并同步产品成本。' }}</text>
 		</view>
 
 		<!-- 采购明细 -->
@@ -53,16 +61,22 @@
 		</view>
 
 		<view style="margin: 30rpx 24rpx;">
-			<button class="btn btn-block" @click="saveOrder">{{ isPrePurchase ? '保存预采购单' : '保存采购单' }}</button>
-			<button class="btn btn-ghost btn-block mt-m" v-if="id && isPrePurchase" @click="approvePrePurchase">审核生成采购单</button>
-			<button class="btn btn-ghost btn-block mt-m" v-if="id && !isPrePurchase" @click="syncAllPrices">同步更新所有产品价格</button>
-			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="removeOrder">{{ isPrePurchase ? '删除预采购单' : '删除采购单' }}</button>
+			<button class="btn btn-block" @click="saveOrder">{{ preFlow ? '保存预采购单' : '保存采购单' }}</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && preFlow" @click="copyPrePurchaseList">复制采购清单</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && preFlow" open-type="share">微信分享预采购单</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && isPrePurchase" @click="approvePrePurchase">审核预采购</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && isPurchasedPre" @click="stockInPurchase">采购入库生成采购单</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && !preFlow" @click="syncAllPrices">同步更新所有产品价格</button>
+			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="removeOrder">{{ preFlow ? '删除预采购单' : '删除采购单' }}</button>
 		</view>
 
 		<!-- 供应商选择弹窗 -->
 		<view class="modal-mask" v-if="showSupPicker" @click="showSupPicker = false">
 			<view class="modal-body" @click.stop>
-				<text class="t-title mb-m">选择供应商</text>
+				<view class="row-between mb-m">
+					<text class="t-title">选择供应商</text>
+					<text class="inline-action" @click="goNewSupplier">新增供货商</text>
+				</view>
 				<input class="input-box modal-search mb-s" v-model="supKw" placeholder="输入供应商 / 联系人 / 手机筛选" @input="loadSuppliers" />
 				<text class="t-muted mb-s">共 {{ supplierTotal }} 个供应商，当前显示 {{ suppliers.length }} 个</text>
 				<view class="picker-item" v-for="s in suppliers" :key="s._id" @click="selectSupplier(s)">
@@ -118,6 +132,12 @@ export default {
 	computed: {
 		isPrePurchase() {
 			return this.form.status === 'pre'
+		},
+		isPurchasedPre() {
+			return this.form.status === 'purchased'
+		},
+		preFlow() {
+			return this.isPrePurchase || this.isPurchasedPre
 		}
 	},
 	onLoad(q) {
@@ -130,7 +150,7 @@ export default {
 			if (o) this.form = { ...this.form, ...o }
 			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: q.id })
 			this.refreshItemsFromProducts()
-			uni.setNavigationBarTitle({ title: o && o.status === 'pre' ? '编辑预采购单' : '编辑采购单' })
+			uni.setNavigationBarTitle({ title: o && (o.status === 'pre' || o.status === 'purchased') ? '编辑预采购单' : '编辑采购单' })
 		} else {
 			this.form.employeeId = s.id
 			this.form.employeeName = s.name
@@ -184,7 +204,16 @@ export default {
 		selectSupplier(s) {
 			this.form.supplierId = s._id
 			this.form.supplierName = s.name
+			this.items.forEach((it) => {
+				it.supplierId = s._id
+				it.supplierName = s.name
+				if (it._id) db.update(T.PURCHASE_ITEM, it._id, { supplierId: s._id, supplierName: s.name })
+			})
 			this.showSupPicker = false
+		},
+		goNewSupplier() {
+			this.showSupPicker = false
+			uni.navigateTo({ url: '/pages/archive/edit?type=supplier' })
 		},
 		addProductNav() {
 			this.productKw = ''
@@ -227,6 +256,8 @@ export default {
 				purchaseOrderId: this.id,
 				productId: p._id, productName: p.name, spec: p.spec,
 				supplierId: this.form.supplierId, supplierName: this.form.supplierName,
+				customerId: this.form.customerId || '',
+				customerName: this.form.customerName || '',
 				qty: 1, purchasePrice: p.purchasePrice || 0, freightShare: 0
 			})
 			this.items.push(item)
@@ -240,8 +271,8 @@ export default {
 				freightShare: Number(it.freightShare) || 0
 			})
 			this.allocateFreight(true, false)
-			if (!this.isPrePurchase) this.items.forEach((row) => this.syncProductPrice(row, true))
-			toast(this.isPrePurchase ? '预采购明细已保存' : '已保存并重新分摊运费')
+			if (!this.preFlow) this.items.forEach((row) => this.syncProductPrice(row, true))
+			toast(this.preFlow ? '预采购明细已保存' : '已保存并重新分摊运费')
 		},
 		allocateFreight(save = false, showTip = true) {
 			if (!this.items.length) return
@@ -300,9 +331,31 @@ export default {
 			if (!this.form.supplierId) return toast('请选择供应商')
 			this.saveOrder()
 			db.update(T.PURCHASE_ORDER, this.id, {
-				status: 'approved',
+				status: 'purchased',
 				approvedTime: Date.now(),
 				approvedBy: this.session.name
+			})
+			this.form.status = 'purchased'
+			this.items.forEach((it) => {
+				if (it.sourcePurchaseRequestItemId) {
+					db.update(T.PURCHASE_REQUEST_ITEM, it.sourcePurchaseRequestItemId, {
+						status: PURCHASE_REQUEST_STATUS.PURCHASED,
+						prePurchaseOrderId: this.id
+					})
+				}
+			})
+			const requestIds = this.items.map((it) => it.sourcePurchaseRequestId).filter(Boolean)
+			Array.from(new Set(requestIds)).forEach((id) => refreshPurchaseRequestStatus(id))
+			toast('预采购已审核，员工端显示已采购', 'success')
+		},
+		stockInPurchase() {
+			if (!this.id) return
+			if (!this.form.supplierId) return toast('请选择供应商')
+			this.saveOrder()
+			db.update(T.PURCHASE_ORDER, this.id, {
+				status: 'approved',
+				stockInTime: Date.now(),
+				stockInBy: this.session.name
 			})
 			this.form.status = 'approved'
 			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: this.id })
@@ -318,15 +371,52 @@ export default {
 			})
 			const requestIds = this.items.map((it) => it.sourcePurchaseRequestId).filter(Boolean)
 			Array.from(new Set(requestIds)).forEach((id) => refreshPurchaseRequestStatus(id))
-			toast('已审核生成采购单，并同步产品成本', 'success')
+			toast('采购已入库，并同步产品成本', 'success')
+		},
+		buildPrePurchaseText() {
+			const lines = []
+			lines.push(`预采购单：${this.form.supplierName || '-'}`)
+			if (this.form.customerName) lines.push(`需求客户：${this.form.customerName}`)
+			if (this.form.sourceEmployeeNames) lines.push(`申请员工：${this.form.sourceEmployeeNames}`)
+			lines.push(`运费：${Number(this.form.freight) || 0}`)
+			lines.push('商品\t规格\t数量\t采购价\t小计')
+			this.items.forEach((it) => {
+				const qty = Number(it.qty) || 0
+				const price = Number(it.purchasePrice) || 0
+				lines.push(`${it.productName}\t${it.spec || '-'}\t${qty}\t${price.toFixed(2)}\t${(qty * price).toFixed(2)}`)
+			})
+			return lines.join('\n')
+		},
+		copyPrePurchaseList() {
+			uni.setClipboardData({ data: this.buildPrePurchaseText(), success: () => toast('预采购清单已复制', 'success') })
 		},
 		async removeOrder() {
 			if (await confirmDialog('确定删除该采购单及所有明细？')) {
+				const oldItems = db.list(T.PURCHASE_ITEM, { purchaseOrderId: this.id })
+				if (this.preFlow) {
+					oldItems.forEach((it) => {
+						if (it.sourcePurchaseRequestItemId) {
+							db.update(T.PURCHASE_REQUEST_ITEM, it.sourcePurchaseRequestItemId, {
+								status: PURCHASE_REQUEST_STATUS.PENDING,
+								prePurchaseOrderId: '',
+								purchaseOrderId: ''
+							})
+						}
+					})
+					const requestIds = oldItems.map((it) => it.sourcePurchaseRequestId).filter(Boolean)
+					Array.from(new Set(requestIds)).forEach((id) => refreshPurchaseRequestStatus(id))
+				}
 				db.removeWhere(T.PURCHASE_ITEM, { purchaseOrderId: this.id })
 				db.remove(T.PURCHASE_ORDER, this.id)
 				toast('已删除', 'success')
 				setTimeout(() => uni.navigateBack(), 300)
 			}
+		}
+	},
+	onShareAppMessage() {
+		return {
+			title: `预采购单 ${this.form.supplierName || ''}`,
+			path: this.id ? `/pages/purchase/detail?id=${this.id}` : '/pages/purchase/list'
 		}
 	}
 }

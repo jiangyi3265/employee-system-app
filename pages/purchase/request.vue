@@ -3,7 +3,7 @@
 		<global-stats />
 		<view class="sub-hero">
 			<text class="sub-hero-title">采购申请</text>
-			<text class="sub-hero-desc">{{ managerMode ? '查看今日所有员工采购需求，按供货商生成预采购单' : '提交自己的采购需求，采购员和管理员会统一处理' }}</text>
+			<text class="sub-hero-desc">{{ managerMode ? '查看今日所有员工采购需求，按客户和供货商拆分预采购单' : '提交自己的采购需求，采购员和管理员会统一处理' }}</text>
 			<view class="metric-row">
 				<view class="metric-pill"><text class="metric-num">{{ requestRows.length }}</text><text class="metric-label">{{ managerMode ? '今日申请' : '我的申请' }}</text></view>
 				<view class="metric-pill"><text class="metric-num">{{ pendingItemCount }}</text><text class="metric-label">待处理明细</text></view>
@@ -14,6 +14,12 @@
 			<view class="row-between mb-m">
 				<text class="t-title">{{ form._id ? '编辑采购申请' : '新建采购申请' }}</text>
 				<text class="inline-action" @click="resetForm">清空</text>
+			</view>
+			<view class="field" v-if="managerMode">
+				<text class="field-label">申请员工*</text>
+				<view class="field-input picker-text" @click="openEmployeePicker">
+					<text :class="form.employeeName ? '' : 't-muted'">{{ form.employeeName || '选择申请员工' }}</text>
+				</view>
 			</view>
 			<view class="field">
 				<text class="field-label">需求客户*</text>
@@ -78,19 +84,44 @@
 					</view>
 					<view class="col item-actions" v-if="managerMode && it.status !== 'converted'">
 						<text class="inline-action" @click="openSupplierPicker('savedItem', it)">供货商</text>
+						<input class="inline-price" type="digit" v-model="it.qty" @blur="saveRequestItemInline(it)" />
 						<input class="inline-price" type="digit" v-model="it.purchasePrice" @blur="saveRequestItemInline(it)" />
+						<text class="t-danger text-action" @click="removeSavedItem(it)">删除</text>
 					</view>
 				</view>
 				<view class="row-between mt-s">
 					<text class="t-muted">{{ requestItems(r._id).length }} 项明细</text>
-					<text class="inline-action" v-if="canEditRequest(r)" @click="editRequest(r)">编辑申请</text>
+					<view class="row gap-s" v-if="canEditRequest(r)">
+						<text class="inline-action" @click="editRequest(r)">编辑申请</text>
+						<text class="inline-action" v-if="managerMode" @click="addProductForRequest(r)">添加商品</text>
+					</view>
 				</view>
+			</view>
+		</view>
+
+		<view class="modal-mask" v-if="showEmployeePicker" @click="showEmployeePicker = false">
+			<view class="modal-body" @click.stop>
+				<view class="row-between mb-m">
+					<text class="t-title">选择申请员工</text>
+					<text class="inline-action" @click="goNewEmployee">新增员工</text>
+				</view>
+				<input class="input-box modal-search mb-s" v-model="employeeKw" placeholder="搜索员工姓名 / 手机 / 职位" @input="loadEmployees" />
+				<view class="picker-item" v-for="e in employees" :key="e._id" @click="selectEmployee(e)">
+					<view class="col flex1">
+						<text class="t-bold">{{ e.name }}</text>
+						<text class="t-muted mt-s">{{ e.position || '-' }} · {{ e.phone || '-' }}</text>
+					</view>
+				</view>
+				<view class="empty-lite" v-if="!employees.length">暂无匹配员工</view>
 			</view>
 		</view>
 
 		<view class="modal-mask" v-if="showCustomerPicker" @click="showCustomerPicker = false">
 			<view class="modal-body" @click.stop>
-				<text class="t-title mb-m">选择需求客户</text>
+				<view class="row-between mb-m">
+					<text class="t-title">选择需求客户</text>
+					<text class="inline-action" @click="goNewCustomer">新增客户</text>
+				</view>
 				<input class="input-box modal-search mb-s" v-model="customerKw" placeholder="搜索客户名称 / 公司 / 手机" @input="loadCustomers" />
 				<view class="picker-item" v-for="c in customers" :key="c._id" @click="selectCustomer(c)">
 					<view class="col flex1">
@@ -106,7 +137,10 @@
 			<view class="modal-body" @click.stop>
 				<view class="row-between mb-m">
 					<text class="t-title">选择供货商</text>
-					<text class="inline-action" @click="clearSupplier">不选择</text>
+					<view class="row gap-s">
+						<text class="inline-action" @click="goNewSupplier">新增供货商</text>
+						<text class="inline-action" @click="clearSupplier">不选择</text>
+					</view>
 				</view>
 				<input class="input-box modal-search mb-s" v-model="supplierKw" placeholder="搜索供货商 / 联系人 / 手机" @input="loadSuppliers" />
 				<view class="picker-item" v-for="s in suppliers" :key="s._id" @click="selectSupplier(s)">
@@ -140,9 +174,9 @@
 
 <script>
 import { db } from '@/store/db.js'
-import { T } from '@/store/schema.js'
+import { T, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
-import { fmtDate, fmtMoney, toast } from '@/utils/format.js'
+import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { isPurchaseManager, refreshPurchaseRequestStatus, requestStatusLabel, startOfToday, PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
 
 export default {
@@ -150,10 +184,13 @@ export default {
 		return {
 			session: {},
 			managerMode: false,
-			form: { _id: '', customerId: '', customerName: '', supplierId: '', supplierName: '', status: PURCHASE_REQUEST_STATUS.PENDING },
+			form: { _id: '', employeeId: '', employeeName: '', customerId: '', customerName: '', supplierId: '', supplierName: '', status: PURCHASE_REQUEST_STATUS.PENDING },
 			draftItems: [],
 			requestRows: [],
 			requestItemMap: {},
+			employees: [],
+			employeeKw: '',
+			showEmployeePicker: false,
 			customers: [],
 			customerKw: '',
 			showCustomerPicker: false,
@@ -179,6 +216,7 @@ export default {
 		if (!s) { uni.redirectTo({ url: '/pages/login/login' }); return }
 		this.session = s
 		this.managerMode = isPurchaseManager(s)
+		this.resetForm()
 		if (q && q.quoteOrderId) this.loadFromQuote(q.quoteOrderId)
 	},
 	onShow() {
@@ -192,11 +230,43 @@ export default {
 		money(n) { return fmtMoney(n) },
 		statusLabel(status) { return requestStatusLabel(status) },
 		statusTag(status) {
-			return { pending: 'tag-orange', pre: 'tag-blue', converted: 'tag-green' }[status] || 'tag-gray'
+			return { pending: 'tag-orange', pre: 'tag-blue', purchased: 'tag-green', converted: 'tag-gray' }[status] || 'tag-gray'
 		},
 		resetForm() {
-			this.form = { _id: '', customerId: '', customerName: '', supplierId: '', supplierName: '', status: PURCHASE_REQUEST_STATUS.PENDING }
+			this.form = {
+				_id: '',
+				employeeId: this.session.id,
+				employeeName: this.session.name,
+				customerId: '',
+				customerName: '',
+				supplierId: '',
+				supplierName: '',
+				status: PURCHASE_REQUEST_STATUS.PENDING
+			}
 			this.draftItems = []
+		},
+		openEmployeePicker() {
+			this.employeeKw = ''
+			this.loadEmployees()
+			this.showEmployeePicker = true
+		},
+		loadEmployees() {
+			const kw = this.employeeKw.trim().toLowerCase()
+			let list = db.list(T.EMPLOYEE, { disabled: false }, 'name')
+			if (kw) {
+				list = list.filter((e) => [e.name, e.phone, e.position, e.remark].filter(Boolean).join(' ').toLowerCase().indexOf(kw) >= 0)
+			}
+			this.employees = list.slice(0, kw ? 80 : 30)
+		},
+		selectEmployee(e) {
+			this.form.employeeId = e._id
+			this.form.employeeName = e.name
+			this.showEmployeePicker = false
+		},
+		goNewEmployee() {
+			if (this.session.role !== ROLE.ADMIN) return toast('新增员工请管理员操作')
+			this.showEmployeePicker = false
+			uni.navigateTo({ url: '/pages/archive/edit?type=employee' })
 		},
 		openCustomerPicker() {
 			this.customerKw = ''
@@ -215,6 +285,10 @@ export default {
 			this.form.customerId = c._id
 			this.form.customerName = c.name
 			this.showCustomerPicker = false
+		},
+		goNewCustomer() {
+			this.showCustomerPicker = false
+			uni.navigateTo({ url: '/pages/archive/edit?type=customer' })
 		},
 		openSupplierPicker(mode = 'form', item = null) {
 			this.supplierPickMode = mode
@@ -250,6 +324,10 @@ export default {
 		clearSupplier() {
 			this.applySupplierToTarget(null)
 			this.showSupplierPicker = false
+		},
+		goNewSupplier() {
+			this.showSupplierPicker = false
+			uni.navigateTo({ url: '/pages/archive/edit?type=supplier' })
 		},
 		openProductPicker() {
 			if (!this.form.customerId) return toast('请先选择需求客户')
@@ -295,6 +373,7 @@ export default {
 			this.draftItems.splice(index, 1)
 		},
 		saveRequest() {
+			if (this.managerMode && !this.form.employeeId) return toast('请选择申请员工')
 			if (!this.form.customerId) return toast('请选择需求客户')
 			if (!this.draftItems.length) return toast('请添加采购商品')
 			let requestId = this.form._id
@@ -304,8 +383,8 @@ export default {
 				supplierId: this.form.supplierId,
 				supplierName: this.form.supplierName,
 				status: this.form.status || PURCHASE_REQUEST_STATUS.PENDING,
-				employeeId: this.session.id,
-				employeeName: this.session.name
+				employeeId: this.managerMode ? this.form.employeeId : this.session.id,
+				employeeName: this.managerMode ? this.form.employeeName : this.session.name
 			}
 			if (requestId) {
 				db.update(T.PURCHASE_REQUEST, requestId, base)
@@ -364,6 +443,8 @@ export default {
 		editRequest(r) {
 			this.form = {
 				_id: r._id,
+				employeeId: r.employeeId || this.session.id,
+				employeeName: r.employeeName || this.session.name,
 				customerId: r.customerId,
 				customerName: r.customerName,
 				supplierId: r.supplierId || '',
@@ -371,6 +452,10 @@ export default {
 				status: r.status || PURCHASE_REQUEST_STATUS.PENDING
 			}
 			this.draftItems = this.requestItems(r._id).map((it) => ({ ...it }))
+		},
+		addProductForRequest(r) {
+			this.editRequest(r)
+			this.openProductPicker()
 		},
 		saveRequestItemInline(it) {
 			if (!it || !it._id) return
@@ -382,12 +467,23 @@ export default {
 			})
 			toast('明细已更新', 'success')
 		},
+		async removeSavedItem(it) {
+			if (!it || !it._id) return
+			if (!(await confirmDialog(`确定删除 ${it.productName}？`))) return
+			db.remove(T.PURCHASE_REQUEST_ITEM, it._id)
+			refreshPurchaseRequestStatus(it.requestId)
+			this.loadRequests()
+			if (this.form._id === it.requestId) {
+				this.draftItems = this.draftItems.filter((row) => row._id !== it._id)
+			}
+			toast('采购申请明细已删除', 'success')
+		},
 		generatePrePurchase() {
 			if (!this.managerMode) return toast('无权生成预采购单')
 			const rows = []
 			this.requestRows.forEach((r) => {
 				this.requestItems(r._id)
-					.filter((it) => it.status !== PURCHASE_REQUEST_STATUS.PRE && it.status !== PURCHASE_REQUEST_STATUS.CONVERTED)
+					.filter((it) => it.status !== PURCHASE_REQUEST_STATUS.PRE && it.status !== PURCHASE_REQUEST_STATUS.PURCHASED && it.status !== PURCHASE_REQUEST_STATUS.CONVERTED)
 					.forEach((it) => rows.push({ ...it, request: r }))
 			})
 			if (!rows.length) return toast('没有可生成的采购明细')
@@ -395,22 +491,26 @@ export default {
 			if (missing) return toast(`${missing.productName} 未关联供货商`)
 			const groups = {}
 			rows.forEach((it) => {
-				if (!groups[it.supplierId]) groups[it.supplierId] = []
-				groups[it.supplierId].push(it)
+				const key = `${it.customerId || 'no_customer'}_${it.supplierId}`
+				if (!groups[key]) groups[key] = []
+				groups[key].push(it)
 			})
 			const created = []
-			Object.keys(groups).forEach((supplierId) => {
-				const group = groups[supplierId]
+			Object.keys(groups).forEach((key) => {
+				const group = groups[key]
 				const first = group[0]
 				const order = db.insert(T.PURCHASE_ORDER, {
 					status: 'pre',
-					supplierId,
+					supplierId: first.supplierId,
 					supplierName: first.supplierName,
+					customerId: first.customerId,
+					customerName: first.customerName,
 					employeeId: this.session.id,
 					employeeName: this.session.name,
 					freight: 0,
 					source: 'purchaseRequest',
-					sourcePurchaseRequestIds: [...new Set(group.map((it) => it.requestId))]
+					sourcePurchaseRequestIds: [...new Set(group.map((it) => it.requestId))],
+					sourceEmployeeNames: [...new Set(group.map((it) => it.request.employeeName).filter(Boolean))].join('、')
 				})
 				created.push(order)
 				group.forEach((it) => {
@@ -419,7 +519,7 @@ export default {
 						productId: it.productId,
 						productName: it.productName,
 						spec: it.spec,
-						supplierId,
+						supplierId: first.supplierId,
 						supplierName: first.supplierName,
 						customerId: it.customerId,
 						customerName: it.customerName,
@@ -443,6 +543,8 @@ export default {
 		loadFromQuote(orderId) {
 			const order = db.get(T.QUOTE_ORDER, orderId)
 			if (!order) return
+			this.form.employeeId = order.employeeId || this.session.id
+			this.form.employeeName = order.employeeName || this.session.name
 			this.form.customerId = order.customerId
 			this.form.customerName = order.customerName
 			this.draftItems = db.list(T.QUOTE_ITEM, { orderId, status: 'done' }).filter((it) => {
