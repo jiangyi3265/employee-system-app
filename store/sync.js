@@ -4,7 +4,18 @@ import { pullAll, pushTables } from './remote.js'
 
 const TABLES = Object.values(T)
 const LAST_PULL_KEY = 'sqms_last_pull_time'
-const PRESERVE_WHEN_REMOTE_EMPTY = new Set([T.EMPLOYEE])
+const PRESERVE_WHEN_REMOTE_EMPTY = new Set([T.EMPLOYEE, T.CUSTOMER])
+const PROTECTED_WECHAT_FIELDS = ['wechatOpenid', 'wechatUnionid', 'wechatBindTime']
+
+// 推送到后端前剥离微信绑定字段：这些字段以服务端为权威，避免本地脏副本把已绑 openid 覆盖清空
+function stripWechatFields(table, rows) {
+	if (table !== T.EMPLOYEE && table !== T.CUSTOMER) return rows
+	return rows.map((row) => {
+		const copy = { ...row }
+		PROTECTED_WECHAT_FIELDS.forEach((f) => delete copy[f])
+		return copy
+	})
+}
 
 let enabled = false
 let timer = null
@@ -37,7 +48,7 @@ export async function syncFromRemote() {
 	TABLES.forEach((table) => {
 		if (Array.isArray(data[table])) {
 			if (PRESERVE_WHEN_REMOTE_EMPTY.has(table) && data[table].length === 0 && db.count(table) > 0) {
-				preservedTables[table] = db.list(table)
+				preservedTables[table] = stripWechatFields(table, db.list(table))
 				return
 			}
 			db.setAll(table, data[table], true)
@@ -51,7 +62,7 @@ export async function syncFromRemote() {
 export async function syncAllToRemote() {
 	const tables = {}
 	TABLES.forEach((table) => {
-		tables[table] = db.list(table)
+		tables[table] = stripWechatFields(table, db.list(table))
 	})
 	return pushTables(tables)
 }
@@ -67,7 +78,7 @@ export async function flushDirtyTables() {
 	if (!dirtyTables.size) return
 	const tables = {}
 	dirtyTables.forEach((table) => {
-		tables[table] = db.list(table)
+		tables[table] = stripWechatFields(table, db.list(table))
 	})
 	dirtyTables.clear()
 	try {

@@ -35,8 +35,8 @@
 
 				<view class="row-between mt-m">
 					<text class="t-muted" v-if="tab === 'customer'" @click="goRegister">客户注册</text>
-					<text class="t-muted" v-else> </text>
-					<text class="t-muted">{{ tab === 'customer' ? '注册需管理员审核' : '' }}</text>
+					<text class="t-muted" v-else>账号由管理员开通</text>
+					<text class="t-muted">{{ tab === 'customer' ? '注册需管理员审核' : '微信登录需先绑定' }}</text>
 				</view>
 
 				<view class="contact" v-if="tab === 'customer'">
@@ -53,17 +53,6 @@
 							<text class="t-sub mt-s">电话：{{ e.phone }}</text>
 							<text class="t-muted mt-s" v-if="e.remark">{{ e.remark }}</text>
 						</view>
-					</view>
-				</view>
-			</view>
-
-			<!-- 演示账号 -->
-			<view class="demo">
-				<text class="demo-title">演示账号（点击快速填入）</text>
-				<view class="demo-list">
-					<view class="demo-chip" v-for="d in demoList" :key="d.phone" @click="fill(d)">
-						<text class="demo-name">{{ d.label }}</text>
-						<text class="demo-phone">{{ d.phone }}</text>
 					</view>
 				</view>
 			</view>
@@ -92,27 +81,10 @@ export default {
 			return db.list(T.EMPLOYEE).filter((e) => !e.disabled)
 		},
 		wechatButtonText() {
-			return this.tab === 'customer' ? '微信一键注册/登录' : '微信一键登录'
-		},
-		demoList() {
-			if (this.tab === 'employee') {
-				return [
-					{ label: '管理员', phone: '13800000000', password: '123456' },
-					{ label: '员工·张伟', phone: '13800000001', password: '123456' },
-					{ label: '员工·李娜', phone: '13800000002', password: '123456' }
-				]
-			}
-			return [
-				{ label: '客户·陈建国', phone: '13600000001', password: '123456' },
-				{ label: '客户·王芳', phone: '13600000002', password: '123456' }
-			]
+			return '微信一键登录'
 		}
 	},
 	methods: {
-		fill(d) {
-			this.phone = d.phone
-			this.password = d.password
-		},
 		doLogin() {
 			if (!this.phone || !this.password) return toast('请输入手机号和密码')
 			const res = this.tab === 'employee'
@@ -124,10 +96,8 @@ export default {
 		},
 		async doWechat() {
 			const role = this.tab === 'employee' ? ROLE.EMPLOYEE : ROLE.CUSTOMER
-			const res = await loginWechat(role, {
-				phone: this.phone,
-				password: this.password
-			})
+			// 微信一键登录仅用于"已绑定"账号；未绑定的由后端提示先用手机号密码登录后到【我的】绑定
+			const res = await loginWechat(role)
 			if (!res.ok) return toast(res.msg)
 			toast('登录成功', 'success')
 			setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 300)

@@ -71,10 +71,24 @@ export function loginRemote(role, phone, password) {
 	})
 }
 
-export function loginWechatRemote(role, code, phone = '', password = '') {
+export function loginWechatRemote(role, code) {
 	return apiRequest('/sqms/auth/login/wechat', {
 		method: 'POST',
-		data: { role, code, phone, password }
+		data: { role, code }
+	})
+}
+
+export function bindWechatRemote(role, phone, password, code) {
+	return apiRequest('/sqms/auth/wechat/bind', {
+		method: 'POST',
+		data: { role, phone, password, code }
+	})
+}
+
+export function unbindWechatRemote(role, phone, password) {
+	return apiRequest('/sqms/auth/wechat/unbind', {
+		method: 'POST',
+		data: { role, phone, password }
 	})
 }
 

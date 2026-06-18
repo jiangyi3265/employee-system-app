@@ -3,7 +3,7 @@
  */
 import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
-import { loginWechatRemote } from '@/store/remote.js'
+import { loginWechatRemote, bindWechatRemote, unbindWechatRemote } from '@/store/remote.js'
 
 const SESSION_KEY = 'sqms_session'
 
@@ -109,19 +109,62 @@ function cacheRemoteUser(role, user, password = '') {
 /**
  * 微信小程序一键登录：客户首次自动注册，员工首次需手机号 + 密码绑定。
  */
-export async function loginWechat(role, options = {}) {
+export async function loginWechat(role) {
 	try {
 		const code = await requestWechatLoginCode()
-		const data = await loginWechatRemote(role, code, options.phone || '', options.password || '')
+		const data = await loginWechatRemote(role, code)
 		const session = data.session
 		if (!session || !session.id) {
 			return { ok: false, msg: '服务器未返回登录会话' }
 		}
 		setSession(session)
-		const cachedUser = cacheRemoteUser(session.role || role, data.user, options.password || '')
+		const cachedUser = cacheRemoteUser(session.role || role, data.user)
 		return { ok: true, session, user: cachedUser || data.user }
 	} catch (e) {
 		return { ok: false, msg: (e && e.message) || '微信登录失败' }
+	}
+}
+
+/**
+ * 登录后主动绑定微信：校验手机号 + 密码，后端做"一个微信全局只绑一个账号"的唯一校验。
+ */
+export async function bindWechat(role, phone, password) {
+	try {
+		const code = await requestWechatLoginCode()
+		const data = await bindWechatRemote(role, phone, password, code)
+		if (data.session && data.session.id) setSession(data.session)
+		const cachedUser = cacheRemoteUser((data.session && data.session.role) || role, data.user, password)
+		return { ok: true, user: cachedUser || data.user }
+	} catch (e) {
+		return { ok: false, msg: (e && e.message) || '微信绑定失败' }
+	}
+}
+
+/**
+ * 解绑微信：校验手机号 + 密码后，清除服务端及本地缓存的微信绑定字段。
+ */
+export async function unbindWechat(role, phone, password) {
+	try {
+		const data = await unbindWechatRemote(role, phone, password)
+		// 同步清掉本地缓存里的微信字段
+		const table = role === ROLE.CUSTOMER ? T.CUSTOMER : T.EMPLOYEE
+		const session = getSession()
+		if (session && session.id) {
+			const list = db.list(table)
+			const idx = list.findIndex((r) => r._id === session.id)
+			if (idx !== -1) {
+				const clean = { ...list[idx] }
+				delete clean.wechatOpenid
+				delete clean.wechatUnionid
+				delete clean.wechatBindTime
+				clean.updateTime = Date.now()
+				list[idx] = clean
+				db.setAll(table, list, true)
+			}
+		}
+		return { ok: true, data }
+	} catch (e) {
+		return { ok: false, msg: (e && e.message) || '解绑失败' }
 	}
 }
 

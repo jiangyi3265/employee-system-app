@@ -21,9 +21,14 @@
 		</view>
 
 		<view class="card menu">
-			<view class="menu-item" @click="resetDemo">
+			<view class="menu-item" v-if="!user.wechatBindTime" @click="doBindWechat">
 				<view class="menu-icon i-refresh"><view class="ui-icon"></view></view>
-				<text class="menu-text flex1">重置演示数据</text>
+				<text class="menu-text flex1">绑定微信</text>
+				<view class="menu-arrow"></view>
+			</view>
+			<view class="menu-item" v-else @click="doUnbindWechat">
+				<view class="menu-icon i-refresh"><view class="ui-icon"></view></view>
+				<text class="menu-text flex1">解绑微信</text>
 				<view class="menu-arrow"></view>
 			</view>
 		</view>
@@ -35,9 +40,8 @@
 </template>
 
 <script>
-import { getSession, currentUser, clearSession, isCustomer } from '@/utils/auth.js'
+import { getSession, currentUser, clearSession, isCustomer, bindWechat, unbindWechat } from '@/utils/auth.js'
 import { ROLE, ROLE_LABEL } from '@/store/schema.js'
-import { resetData } from '@/store/seed.js'
 import { confirmDialog, toast } from '@/utils/format.js'
 
 export default {
@@ -86,11 +90,41 @@ export default {
 				uni.redirectTo({ url: '/pages/login/login' })
 			}
 		},
-		async resetDemo() {
-			if (await confirmDialog('将清空当前数据并恢复演示数据，确定？')) {
-				resetData()
-				toast('已重置', 'success')
-			}
+		async doBindWechat() {
+			const r = await new Promise((resolve) => {
+				uni.showModal({
+					title: '绑定微信',
+					editable: true,
+					placeholderText: '请输入登录密码确认',
+					success: resolve,
+					fail: () => resolve({ confirm: false })
+				})
+			})
+			if (!r.confirm) return
+			const password = (r.content || '').trim()
+			if (!password) return toast('请输入登录密码')
+			const res = await bindWechat(this.session.role, this.user.phone, password)
+			if (!res.ok) return toast(res.msg)
+			toast('微信绑定成功', 'success')
+			this.user = currentUser() || this.user
+		},
+		async doUnbindWechat() {
+			const r = await new Promise((resolve) => {
+				uni.showModal({
+					title: '解绑微信',
+					editable: true,
+					placeholderText: '请输入登录密码确认',
+					success: resolve,
+					fail: () => resolve({ confirm: false })
+				})
+			})
+			if (!r.confirm) return
+			const password = (r.content || '').trim()
+			if (!password) return toast('请输入登录密码')
+			const res = await unbindWechat(this.session.role, this.user.phone, password)
+			if (!res.ok) return toast(res.msg)
+			toast('已解绑微信', 'success')
+			this.user = currentUser() || this.user
 		}
 	}
 }

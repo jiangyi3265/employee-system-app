@@ -3,7 +3,7 @@
 	import { bootstrapRemoteSync } from '@/store/sync.js'
 	export default {
 		onLaunch: async function() {
-			// 首次启动写入演示数据
+			// 首次启动写入初始配置（价格/单位），不含演示账号
 			ensureSeed()
 			await bootstrapRemoteSync()
 		},
