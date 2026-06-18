@@ -23,6 +23,7 @@
 		{ "path": "pages/archive/employee", "style": { "navigationBarTitleText": "员工档案" } },
 		{ "path": "pages/archive/supplier", "style": { "navigationBarTitleText": "供应商档案" } },
 		{ "path": "pages/archive/competitor", "style": { "navigationBarTitleText": "同行档案" } },
+		{ "path": "pages/archive/competitor-quote-edit", "style": { "navigationBarTitleText": "匹配同行报价" } },
 		{ "path": "pages/archive/edit", "style": { "navigationBarTitleText": "编辑档案" } },
 		{ "path": "pages/customer/products", "style": { "navigationBarTitleText": "商品浏览" } },
 		{ "path": "pages/customer/product-detail", "style": { "navigationBarTitleText": "商品详情" } },

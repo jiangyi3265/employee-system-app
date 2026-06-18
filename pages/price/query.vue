@@ -231,7 +231,6 @@ export default {
 			if (!this.productId) return []
 			let rows = db.list(T.COMP_QUOTE, { productId: this.productId })
 				.map((row) => this.enrichCompetitor(row))
-				.concat(this.requestSupplierQuoteRows())
 			if (this.customerId) {
 				rows = rows.filter((row) => !row.customerId || row.customerId === this.customerId)
 			}
@@ -394,37 +393,6 @@ export default {
 			})
 			return list
 		},
-		requestSupplierQuoteRows() {
-			if (!this.productId) return []
-			const orders = {}
-			const rows = []
-			db.list(T.REQUEST_ITEM, { productId: this.productId }).forEach((item) => {
-				const supplierQuotes = Array.isArray(item.supplierQuotes) ? item.supplierQuotes : []
-				if (!supplierQuotes.length) return
-				const orderId = item.requestOrderId || ''
-				if (orderId && !orders[orderId]) orders[orderId] = db.get(T.REQUEST_ORDER, orderId) || {}
-				const order = orderId ? orders[orderId] : {}
-				supplierQuotes.forEach((quote, index) => {
-					const name = (quote.name || quote.supplierName || '同行').trim()
-					const price = Number(quote.price) || 0
-					if (!price) return
-					rows.push(this.enrichCompetitor({
-						_id: `request_supplier_${item._id || orderId}_${index}_${name}`,
-						productId: item.productId,
-						competitorName: name,
-						price,
-						source: 'customerSupplierQuote',
-						sourceRequestOrderId: orderId,
-						sourceRequestItemId: item._id,
-						sourceCustomerId: order.customerId || item.customerId || '',
-						sourceCustomerName: order.customerName || item.customerName || '',
-						createTime: quote.createTime || item.updateTime || item.createTime || order.updateTime || order.createTime,
-						updateTime: quote.updateTime || item.updateTime || item.createTime || order.updateTime || order.createTime
-					}))
-				})
-			})
-			return rows
-		},
 		enrichQuote(row) {
 			const customer = row.customerName || this.nameOf(T.CUSTOMER, row.customerId) || '未知客户'
 			const employee = row.employeeName || this.nameOf(T.EMPLOYEE, row.employeeId) || '未知员工'
@@ -444,7 +412,7 @@ export default {
 			const key = row.competitorId || row.supplierId || name
 			const customerId = row.sourceCustomerId || row.customerId || ''
 			const customerName = row.sourceCustomerName || row.customerName || this.nameOf(T.CUSTOMER, customerId)
-			const sourceLabel = row.source === 'customerSupplierQuote' ? '客户提供同行报价' : '同行'
+			const sourceLabel = row.source === 'manualCustomerSupplierQuote' ? '客户提供·已匹配' : '同行'
 			return {
 				...row,
 				key,

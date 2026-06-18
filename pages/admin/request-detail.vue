@@ -40,8 +40,9 @@
 						</view>
 						<view class="row gap-s">
 							<text class="t-price">{{ money(q.price) }}</text>
-							<text class="inline-action" @click="saveSupplierQuote(it, q)">存入同行报价库</text>
+							<text class="inline-action" @click="openSupplierQuoteMatch(it, q, qi)">{{ q.savedCompQuoteId ? '重新匹配' : '存入同行报价库' }}</text>
 						</view>
+						<text class="t-muted mt-s" v-if="q.matchedCompetitorName">已匹配：{{ q.matchedCompetitorName }}</text>
 					</view>
 				</view>
 				<view class="rec-box mt-s" v-if="it._rec">
@@ -73,7 +74,6 @@ import { sendToUser, notifyAdmins } from '@/utils/message.js'
 import { recommendQuote, recentDealPrices, competitorQuotes, quoteAuditPatch } from '@/utils/pricing.js'
 import { refreshCustomerOwner, refreshOrderDealStatus } from '@/utils/stats.js'
 import { addOrderSystemFollow } from '@/utils/follow.js'
-import { archiveEditUrl, findCompetitorByName, normalizeArchiveName } from '@/utils/competitor.js'
 
 export default {
 	data() { return { id: '', order: {}, items: [], session: {} } },
@@ -93,6 +93,9 @@ export default {
 			this.id = q.id
 			this.load()
 		}
+	},
+	onShow() {
+		if (this.id) this.load()
 	},
 	methods: {
 		fmt(t) { return fmtDate(t, true) },
@@ -180,86 +183,20 @@ export default {
 			it._rec = this.buildRecommendation(it)
 			it.quotePrice = it._rec.price
 		},
-		supplierQuoteName(quote) {
-			return String((quote && (quote.name || quote.supplierName)) || '').trim()
-		},
-		isSameSupplierQuote(row, competitor, name, price) {
-			const rowName = row.supplierName || row.competitorName || ''
-			const sameCompetitor = row.competitorId
-				? row.competitorId === competitor._id
-				: normalizeArchiveName(rowName) === normalizeArchiveName(competitor.name || name)
-			return sameCompetitor && Number(row.price) === price
-		},
-		async saveSupplierQuoteToLibrary(it, quote, options = {}) {
-			const { showToast = true, promptMissing = true } = options
-			const name = this.supplierQuoteName(quote)
-			const price = Number(quote && quote.price) || 0
-			if (!name) {
-				if (showToast) toast('同行名称不能为空')
-				return { ok: false, invalid: true }
-			}
-			if (!it.productId) {
-				if (showToast) toast('商品信息不完整，无法保存')
-				return { ok: false, invalid: true }
-			}
-			if (price <= 0) {
-				if (showToast) toast('同行报价无效')
-				return { ok: false, invalid: true }
-			}
-			const competitor = findCompetitorByName(name)
-			if (!competitor) {
-				if (promptMissing) {
-					const ok = await confirmDialog(`同行不存在：${name}，是否添加？`, '同行不存在', {
-						confirmText: '是',
-						cancelText: '否'
-					})
-					if (ok) {
-						uni.navigateTo({ url: archiveEditUrl('competitor', { name }) })
-						return { ok: false, missing: true, navigated: true }
-					}
-				}
-				return { ok: false, missing: true }
-			}
-			const exists = db.list(T.COMP_QUOTE, { productId: it.productId }).find((row) => this.isSameSupplierQuote(row, competitor, name, price))
-			if (exists) {
-				if (showToast) toast('报价库中已有相同记录')
-				return { ok: true, duplicate: true }
-			}
-			db.insert(T.COMP_QUOTE, {
-				productId: it.productId,
-				competitorId: competitor._id,
-				competitorName: competitor.name,
-				price,
-				source: 'customerSupplierQuote',
-				sourceRequestOrderId: this.id,
-				sourceRequestItemId: it._id,
-				sourceCustomerId: this.order.customerId,
-				sourceCustomerName: this.order.customerName
-			})
-			if (showToast) toast('已存入报价库', 'success')
-			return { ok: true, saved: true }
-		},
-		async saveSupplierQuote(it, quote) {
-			return this.saveSupplierQuoteToLibrary(it, quote)
-		},
-		async syncSupplierQuotesToLibrary() {
-			const quotes = []
-			this.items.forEach((it) => {
-				(it.supplierQuotes || []).forEach((quote) => {
-					if (quote) quotes.push({ it, quote })
-				})
-			})
-			let saved = 0
-			let duplicate = 0
-			let skipped = 0
-			for (const row of quotes) {
-				const result = await this.saveSupplierQuoteToLibrary(row.it, row.quote, { showToast: false })
-				if (result.navigated) return { interrupted: true, saved, duplicate, skipped }
-				if (result.saved) saved += 1
-				else if (result.duplicate) duplicate += 1
-				else skipped += 1
-			}
-			return { interrupted: false, saved, duplicate, skipped }
+		openSupplierQuoteMatch(it, quote, quoteIndex) {
+			const params = [
+				`requestId=${encodeURIComponent(this.id)}`,
+				`requestItemId=${encodeURIComponent(it._id || '')}`,
+				`quoteIndex=${encodeURIComponent(quoteIndex)}`,
+				`productId=${encodeURIComponent(it.productId || '')}`,
+				`productName=${encodeURIComponent(it.productName || '')}`,
+				`spec=${encodeURIComponent(it.spec || '')}`,
+				`customerId=${encodeURIComponent(this.order.customerId || '')}`,
+				`customerName=${encodeURIComponent(this.order.customerName || '')}`,
+				`providedName=${encodeURIComponent((quote && (quote.name || quote.supplierName)) || '')}`,
+				`price=${encodeURIComponent(Number(quote && quote.price) || 0)}`
+			]
+			uni.navigateTo({ url: '/pages/archive/competitor-quote-edit?' + params.join('&') })
 		},
 		insertQuoteItem(orderId, it, orderOwner) {
 			const product = db.get(T.PRODUCT, it.productId)
@@ -328,8 +265,6 @@ export default {
 		},
 		async acceptOrder() {
 			if (!this.items.length) return toast('申请没有商品，无法接单')
-			const supplierSync = await this.syncSupplierQuotesToLibrary()
-			if (supplierSync.interrupted) return
 			const existingId = this.order.acceptedQuoteOrderId || this.order.approvedQuoteOrderId || this.order.sourceQuoteOrderId
 			if (existingId) {
 				const existing = db.get(T.QUOTE_ORDER, existingId)
@@ -350,8 +285,7 @@ export default {
 							threadId: `quote_${existing._id}_special`
 						})
 					}
-					const syncText = supplierSync.saved ? `，已同步同行报价 ${supplierSync.saved} 条` : ''
-					toast(`正在进入已接单报价单${syncText}`, 'success')
+					toast('正在进入已接单报价单', 'success')
 					setTimeout(() => {
 						uni.redirectTo({ url: '/pages/quote/detail?id=' + existing._id })
 					}, 300)
@@ -391,8 +325,7 @@ export default {
 				fromName: this.session.name,
 				threadId: `quote_${quoteOrder._id}_${this.order.customerId}`
 			})
-			const syncText = supplierSync.saved ? `，已同步同行报价 ${supplierSync.saved} 条` : ''
-			toast(`已接单${syncText}，正在进入报价单`, 'success')
+			toast('已接单，正在进入报价单', 'success')
 			setTimeout(() => {
 				uni.redirectTo({ url: '/pages/quote/detail?id=' + quoteOrder._id })
 			}, 300)
