@@ -15,6 +15,8 @@ export const T = {
 	FOLLOW: 'follows',            // 客户跟进表
 	PURCHASE_ORDER: 'purchaseOrders', // 采购订单表
 	PURCHASE_ITEM: 'purchaseItems',   // 产品采购表
+	PURCHASE_REQUEST: 'purchaseRequests', // 采购申请单
+	PURCHASE_REQUEST_ITEM: 'purchaseRequestItems', // 采购申请明细
 	REQUEST_ORDER: 'requestOrders',   // 客户申请报价订单表
 	REQUEST_ITEM: 'requestItems',     // 客户申请产品报价表
 	SUGGESTION: 'suggestions',    // 客户建议/投诉

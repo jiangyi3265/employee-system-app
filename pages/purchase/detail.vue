@@ -2,7 +2,7 @@
 	<view class="page">
 		<global-stats />
 		<view class="card">
-			<text class="t-title mb-m">采购订单信息</text>
+			<text class="t-title mb-m">{{ isPrePurchase ? '预采购单信息' : '采购订单信息' }}</text>
 			<view class="field">
 				<text class="field-label">供应商*</text>
 				<view class="field-input row" @click="pickSupplier">
@@ -11,7 +11,7 @@
 			</view>
 			<view class="field">
 				<text class="field-label">运费</text>
-				<input class="field-input" type="digit" v-model.number="form.freight" placeholder="0" @blur="allocateFreight(true)" />
+				<input class="field-input" type="digit" v-model="form.freight" placeholder="0" @blur="allocateFreight(true)" />
 			</view>
 			<text class="t-muted mt-s">保存采购明细后，可按数量自动分摊单件运费并同步产品成本。</text>
 		</view>
@@ -35,17 +35,17 @@
 				<view class="row-between mt-s">
 					<view class="row gap-s">
 						<text class="t-sub">数量</text>
-						<input class="mini-ipt" type="digit" v-model.number="it.qty" @blur="saveItem(it)" />
+						<input class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" />
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">采购价</text>
-						<input class="mini-ipt" type="digit" v-model.number="it.purchasePrice" @blur="saveItem(it)" />
+						<input class="mini-ipt" type="digit" v-model="it.purchasePrice" @blur="saveItem(it)" />
 					</view>
 				</view>
 				<view class="row-between mt-s">
 					<view class="row gap-s">
 						<text class="t-sub">分摊运费</text>
-						<input class="mini-ipt" type="digit" v-model.number="it.freightShare" @blur="saveItem(it)" />
+						<input class="mini-ipt" type="digit" v-model="it.freightShare" @blur="saveItem(it)" />
 					</view>
 					<text class="t-sub">小计：{{ money(it.qty * it.purchasePrice) }}</text>
 				</view>
@@ -53,9 +53,10 @@
 		</view>
 
 		<view style="margin: 30rpx 24rpx;">
-			<button class="btn btn-block" @click="saveOrder">保存采购单</button>
-			<button class="btn btn-ghost btn-block mt-m" v-if="id" @click="syncAllPrices">同步更新所有产品价格</button>
-			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="removeOrder">删除采购单</button>
+			<button class="btn btn-block" @click="saveOrder">{{ isPrePurchase ? '保存预采购单' : '保存采购单' }}</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && isPrePurchase" @click="approvePrePurchase">审核生成采购单</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && !isPrePurchase" @click="syncAllPrices">同步更新所有产品价格</button>
+			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="removeOrder">{{ isPrePurchase ? '删除预采购单' : '删除采购单' }}</button>
 		</view>
 
 		<!-- 供应商选择弹窗 -->
@@ -95,6 +96,7 @@ import { T } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { calcPrices, getSettings, round2 } from '@/utils/pricing.js'
+import { PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
 
 export default {
 	data() {
@@ -113,6 +115,11 @@ export default {
 			session: {}
 		}
 	},
+	computed: {
+		isPrePurchase() {
+			return this.form.status === 'pre'
+		}
+	},
 	onLoad(q) {
 		const s = getSession()
 		if (!s) { uni.redirectTo({ url: '/pages/login/login' }); return }
@@ -123,7 +130,7 @@ export default {
 			if (o) this.form = { ...this.form, ...o }
 			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: q.id })
 			this.refreshItemsFromProducts()
-			uni.setNavigationBarTitle({ title: '编辑采购单' })
+			uni.setNavigationBarTitle({ title: o && o.status === 'pre' ? '编辑预采购单' : '编辑采购单' })
 		} else {
 			this.form.employeeId = s.id
 			this.form.employeeName = s.name
@@ -233,8 +240,8 @@ export default {
 				freightShare: Number(it.freightShare) || 0
 			})
 			this.allocateFreight(true, false)
-			this.items.forEach((row) => this.syncProductPrice(row, true))
-			toast('已保存并重新分摊运费')
+			if (!this.isPrePurchase) this.items.forEach((row) => this.syncProductPrice(row, true))
+			toast(this.isPrePurchase ? '预采购明细已保存' : '已保存并重新分摊运费')
 		},
 		allocateFreight(save = false, showTip = true) {
 			if (!this.items.length) return
@@ -276,6 +283,7 @@ export default {
 				})
 			} else {
 				const o = db.insert(T.PURCHASE_ORDER, {
+					status: 'approved',
 					supplierId: this.form.supplierId,
 					supplierName: this.form.supplierName,
 					employeeId: this.form.employeeId,
@@ -286,6 +294,31 @@ export default {
 			}
 			this.allocateFreight(true, false)
 			toast('已保存', 'success')
+		},
+		approvePrePurchase() {
+			if (!this.id) return
+			if (!this.form.supplierId) return toast('请选择供应商')
+			this.saveOrder()
+			db.update(T.PURCHASE_ORDER, this.id, {
+				status: 'approved',
+				approvedTime: Date.now(),
+				approvedBy: this.session.name
+			})
+			this.form.status = 'approved'
+			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: this.id })
+			this.allocateFreight(true, false)
+			this.items.forEach((it) => {
+				this.syncProductPrice(it, true)
+				if (it.sourcePurchaseRequestItemId) {
+					db.update(T.PURCHASE_REQUEST_ITEM, it.sourcePurchaseRequestItemId, {
+						status: PURCHASE_REQUEST_STATUS.CONVERTED,
+						purchaseOrderId: this.id
+					})
+				}
+			})
+			const requestIds = this.items.map((it) => it.sourcePurchaseRequestId).filter(Boolean)
+			Array.from(new Set(requestIds)).forEach((id) => refreshPurchaseRequestStatus(id))
+			toast('已审核生成采购单，并同步产品成本', 'success')
 		},
 		async removeOrder() {
 			if (await confirmDialog('确定删除该采购单及所有明细？')) {

@@ -118,7 +118,7 @@
 				<!-- 客户预期价 -->
 				<view class="field mt-s">
 					<text class="field-label" style="width:auto;margin-right:12rpx;">客户预期价</text>
-					<input class="expect-input" type="digit" v-model.number="customerExpect" placeholder="选填" @blur="calcRecommend(p)" />
+					<input class="expect-input" type="digit" v-model="customerExpect" placeholder="选填" @blur="calcRecommend(p)" />
 				</view>
 
 				<!-- 系统推荐报价 -->
@@ -147,7 +147,7 @@
 								<input class="quote-entry-input" v-model="compPhoneInput" placeholder="电话" />
 							</view>
 						</view>
-						<input class="quote-entry-input" type="digit" v-model.number="compInputPrice" placeholder="报价" />
+						<input class="quote-entry-input" type="digit" v-model="compInputPrice" placeholder="报价" />
 						<button class="btn btn-sm quote-entry-btn" @click="addCompQuote(p)">录入</button>
 					</view>
 				</view>

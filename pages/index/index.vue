@@ -96,6 +96,7 @@ export default {
 				{ name: '报价单', icon: 'i-quote', bg: '#dcfce7', url: '/pages/quote/list' },
 				{ name: '价格查询', icon: 'i-search', bg: '#eef2ff', url: '/pages/price/query' },
 				{ name: '产品信息', icon: 'i-product', bg: '#fef3c7', url: '/pages/product/list' },
+				{ name: '采购申请', icon: 'i-edit', bg: '#e0f2fe', url: '/pages/purchase/request' },
 				{ name: '采购管理', icon: 'i-truck', bg: '#ede9fe', url: '/pages/purchase/list' },
 				{ name: '客户档案', icon: 'i-users', bg: '#e0edff', url: '/pages/archive/customer' },
 				{ name: '供应商', icon: 'i-factory', bg: '#dcfce7', url: '/pages/archive/supplier' },

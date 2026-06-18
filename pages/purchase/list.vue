@@ -32,11 +32,11 @@
 		<view class="list-card order" v-for="o in list" :key="o._id" @click="go(o._id)">
 			<view class="row-between">
 				<text class="t-title" style="font-size:30rpx;">{{ o.supplierName }}</text>
-				<text class="t-muted">{{ fmt(o.createTime) }}</text>
+				<text class="tag" :class="o.status === 'pre' ? 'tag-blue' : 'tag-green'">{{ o.status === 'pre' ? '预采购' : '采购单' }}</text>
 			</view>
 			<text class="meta-line">采购员工：{{ o.employeeName || '-' }} · 明细 {{ itemCount(o._id) }} 项</text>
 			<view class="row-between mt-s">
-				<text class="t-sub">运费：{{ money(o.freight || 0) }}</text>
+				<text class="t-sub">{{ fmt(o.createTime) }} · 运费：{{ money(o.freight || 0) }}</text>
 				<text class="inline-action">查看详情</text>
 			</view>
 		</view>
@@ -49,16 +49,24 @@
 import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtDate, fmtMoney } from '@/utils/format.js'
+import { getSession } from '@/utils/auth.js'
+import { isPurchaseManager } from '@/utils/purchase.js'
 
 export default {
-	data() { return { list: [], all: [], kw: '', suppliers: [], supplierId: '', supplierName: '', startDate: '', endDate: '' } },
+	data() { return { list: [], all: [], kw: '', suppliers: [], supplierId: '', supplierName: '', startDate: '', endDate: '', session: {}, managerMode: false } },
 	computed: {
 		allCount() { return this.all.length },
 		totalFreight() { return this.all.reduce((s, o) => s + (Number(o.freight) || 0), 0) },
 		supplierCount() { return new Set(this.all.map((o) => o.supplierId).filter(Boolean)).size },
 		supplierOptions() { return [{ _id: '', name: '全部供应商' }].concat(this.suppliers) }
 	},
-	onShow() { this.load() },
+	onShow() {
+		const s = getSession()
+		if (!s) { uni.redirectTo({ url: '/pages/login/login' }); return }
+		this.session = s
+		this.managerMode = isPurchaseManager(s)
+		this.load()
+	},
 	methods: {
 		fmt(t) { return fmtDate(t, true) },
 		money(n) { return fmtMoney(n) },
@@ -92,6 +100,7 @@ export default {
 		load() {
 			this.suppliers = db.list(T.SUPPLIER, null, 'name')
 			this.all = db.list(T.PURCHASE_ORDER, null, 'createTime', true)
+			if (!this.managerMode) this.all = this.all.filter((o) => o.employeeId === this.session.id)
 			const kw = this.kw.trim()
 			const start = this.dateStart(this.startDate)
 			const end = this.dateEnd(this.endDate)

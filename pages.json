@@ -18,6 +18,7 @@
 		{ "path": "pages/follow/add", "style": { "navigationBarTitleText": "新增跟进" } },
 		{ "path": "pages/purchase/list", "style": { "navigationBarTitleText": "采购列表" } },
 		{ "path": "pages/purchase/detail", "style": { "navigationBarTitleText": "采购详情" } },
+		{ "path": "pages/purchase/request", "style": { "navigationBarTitleText": "采购申请" } },
 		{ "path": "pages/archive/customer", "style": { "navigationBarTitleText": "客户档案" } },
 		{ "path": "pages/archive/customer-detail", "style": { "navigationBarTitleText": "客户详情" } },
 		{ "path": "pages/archive/employee", "style": { "navigationBarTitleText": "员工档案" } },

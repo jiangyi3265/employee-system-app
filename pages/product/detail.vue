@@ -31,11 +31,11 @@
 				<text class="t-title">价格</text>
 				<text class="t-primary" @click="recalc">按采购价重算</text>
 			</view>
-			<view class="field"><text class="field-label">采购价*</text><input class="field-input" type="digit" v-model.number="form.purchasePrice" @blur="recalc" placeholder="手动录入" /></view>
-			<view class="field"><text class="field-label">成本价</text><input class="field-input" type="digit" v-model.number="form.costPrice" /></view>
-			<view class="field"><text class="field-label">最低销售价</text><input class="field-input" type="digit" v-model.number="form.minPrice" /></view>
-			<view class="field"><text class="field-label">建议销售价</text><input class="field-input" type="digit" v-model.number="form.suggestPrice" /></view>
-			<view class="field"><text class="field-label">零售价</text><input class="field-input" type="digit" v-model.number="form.retailPrice" /></view>
+			<view class="field"><text class="field-label">采购价*</text><input class="field-input" type="digit" v-model="form.purchasePrice" @blur="recalc" placeholder="手动录入" /></view>
+			<view class="field"><text class="field-label">成本价</text><input class="field-input" type="digit" v-model="form.costPrice" /></view>
+			<view class="field"><text class="field-label">最低销售价</text><input class="field-input" type="digit" v-model="form.minPrice" /></view>
+			<view class="field"><text class="field-label">建议销售价</text><input class="field-input" type="digit" v-model="form.suggestPrice" /></view>
+			<view class="field"><text class="field-label">零售价</text><input class="field-input" type="digit" v-model="form.retailPrice" /></view>
 			<text class="t-muted mt-s">说明：采购价手动录入，其余价格按全局参数自动生成，生成后可手动修改。</text>
 		</view>
 
@@ -88,7 +88,7 @@
 				<text class="t-bold">同行报价</text>
 				<view class="comp-row" v-for="q in compQuotes" :key="q._id">
 					<text class="t-sub flex1">{{ q.competitorName || '-' }}</text>
-					<input class="mini-ipt" type="digit" v-model.number="q.price" @blur="saveCompQuote(q)" />
+					<input class="mini-ipt" type="digit" v-model="q.price" @blur="saveCompQuote(q)" />
 					<text class="t-muted">{{ fmt(q.createTime) }}</text>
 					<text class="t-danger text-action" @click="removeCompQuote(q)">删除</text>
 				</view>
@@ -96,7 +96,7 @@
 					<picker :range="competitors" :range-key="'name'" @change="pickCompetitor">
 						<view class="input-box compact"><text :class="selCompName ? '' : 't-muted'">{{ selCompName || '选择同行' }}</text></view>
 					</picker>
-					<input class="input-box compact price-input" type="digit" v-model.number="compInputPrice" placeholder="报价" />
+					<input class="input-box compact price-input" type="digit" v-model="compInputPrice" placeholder="报价" />
 					<button class="btn btn-sm" @click="addCompQuote">录入</button>
 				</view>
 			</view>
@@ -224,7 +224,18 @@ export default {
 			// 产品名称按需求保持唯一；同类不同规格请把规格/属性写入名称，避免客户选择时重名。
 			const dup = db.list(T.PRODUCT).find((p) => p.name === f.name.trim() && p._id !== this.id)
 			if (dup) return toast('产品名称不可重复')
-			const data = { ...f, name: f.name.trim(), spec: f.spec.trim() }
+			const data = {
+				...f,
+				name: f.name.trim(),
+				spec: f.spec.trim(),
+				mediumToSmall: Number(f.mediumToSmall) || 0,
+				largeToMedium: Number(f.largeToMedium) || 0,
+				purchasePrice: Number(f.purchasePrice) || 0,
+				costPrice: Number(f.costPrice) || 0,
+				minPrice: Number(f.minPrice) || 0,
+				suggestPrice: Number(f.suggestPrice) || 0,
+				retailPrice: Number(f.retailPrice) || 0
+			}
 			if (this.id) db.update(T.PRODUCT, this.id, data)
 			else db.insert(T.PRODUCT, data)
 			toast('已保存', 'success')

@@ -24,11 +24,11 @@
 					<view class="row gap-s">
 						<text class="t-sub">建议价：{{ money(it.suggestPrice) }}</text>
 						<text class="t-sub">客户预期：</text>
-						<input class="mini-ipt price-ipt" type="digit" v-model.number="it.customerExpect" placeholder="选填" @blur="recalcItem(it)" />
+						<input class="mini-ipt price-ipt" type="digit" v-model="it.customerExpect" placeholder="选填" @blur="recalcItem(it)" />
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">报价</text>
-						<input class="mini-ipt price-ipt" type="digit" v-model.number="it.quotePrice" @blur="validateItemQuote(it)" />
+						<input class="mini-ipt price-ipt" type="digit" v-model="it.quotePrice" @blur="validateItemQuote(it)" />
 					</view>
 				</view>
 				<view class="support-box mt-s" v-if="it.supplierQuotes && it.supplierQuotes.length">

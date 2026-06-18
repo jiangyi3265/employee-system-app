@@ -14,7 +14,7 @@
 			</view>
 			<view class="field">
 				<text class="field-label">客户提供价</text>
-				<input class="field-input" type="digit" v-model.number="price" placeholder="请输入报价" />
+				<input class="field-input" type="digit" v-model="price" placeholder="请输入报价" />
 			</view>
 			<text class="t-muted mt-s">这条线索不会自动进入价格查询，只有保存后才写入同行报价库。</text>
 		</view>

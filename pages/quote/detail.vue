@@ -42,12 +42,12 @@
 				<view class="row-between mt-s">
 					<view class="row gap-s">
 						<text class="t-sub">数量</text>
-						<input class="mini-ipt" type="digit" v-model.number="it.qty" @blur="saveItem(it)" />
+						<input class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" />
 						<text class="t-sub">{{ it.unit }}</text>
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">单价</text>
-						<input class="mini-ipt" type="digit" v-model.number="it.price" @blur="saveItem(it)" />
+						<input class="mini-ipt" type="digit" v-model="it.price" @blur="saveItem(it)" />
 					</view>
 				</view>
 				<view class="row-between mt-s">
@@ -102,6 +102,7 @@
 		<view style="margin: 30rpx 24rpx;">
 			<button class="btn btn-block" @click="saveOrder">{{ saveText }}</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id" @click="goExport">导出报价单</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && purchaseConvertibleCount" @click="goPurchaseRequestFromOrder">生成采购申请单</button>
 			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="removeOrder">删除报价单</button>
 		</view>
 
@@ -129,6 +130,7 @@ import { refreshOrderDealStatus, refreshCustomerOwner, orderFinance } from '@/ut
 import { profitRate, quoteAuditPatch, isQuotableQuoteItem } from '@/utils/pricing.js'
 import { addOrderFollow, addOrderSystemFollow, followActor, orderFollows } from '@/utils/follow.js'
 import { notifyAdmins, sendToUser } from '@/utils/message.js'
+import { PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
 
 export default {
 	data() {
@@ -161,6 +163,11 @@ export default {
 		},
 		pendingReviewCount() {
 			return this.items.filter((it) => it.needsAdminReview).length
+		},
+		purchaseConvertibleCount() {
+			return this.items.filter((it) => {
+				return it.status === 'done' && it._id && !String(it._id).startsWith('tmp_') && !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+			}).length
 		},
 		finance() {
 			if (this.id) return orderFinance(this.id, this.form.dealStatus !== DEAL_STATUS.PENDING)
@@ -302,6 +309,7 @@ export default {
 			if (newStatus === 'done') refreshCustomerOwner(this.form.customerId)
 			if (oldStatus !== newStatus && this.id) {
 				addOrderSystemFollow(this.id, `${this.session.name} 将 ${it.productName} ${newStatus === 'done' ? '标记为已成交' : '取消成交'}`, this.session)
+				if (newStatus === 'done') this.createPurchaseRequestFromQuoteItems([it], true, false)
 				this.loadFollows()
 			}
 		},
@@ -459,6 +467,56 @@ export default {
 		goExport() {
 			if (this.pendingReviewCount) return toast('存在低价待审核商品，审核通过前不能导出报价')
 			uni.navigateTo({ url: '/pages/quote/export?id=' + this.id })
+		},
+		createPurchaseRequestFromQuoteItems(rows = this.items, showToast = true, goAfter = false) {
+			const doneRows = rows.filter((it) => {
+				return it.status === 'done' && it._id && !String(it._id).startsWith('tmp_') && !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+			})
+			if (!doneRows.length) {
+				if (showToast) toast('没有可生成采购申请的成交明细')
+				return null
+			}
+			let request = db.list(T.PURCHASE_REQUEST, {
+				sourceQuoteOrderId: this.id,
+				status: PURCHASE_REQUEST_STATUS.PENDING
+			}).find((row) => row.customerId === this.form.customerId && row.employeeId === this.form.employeeId)
+			if (!request) {
+				request = db.insert(T.PURCHASE_REQUEST, {
+					customerId: this.form.customerId,
+					customerName: this.form.customerName,
+					supplierId: '',
+					supplierName: '',
+					status: PURCHASE_REQUEST_STATUS.PENDING,
+					employeeId: this.form.employeeId || this.session.id,
+					employeeName: this.form.employeeName || this.session.name,
+					sourceQuoteOrderId: this.id
+				})
+			}
+			doneRows.forEach((it) => {
+				const product = db.get(T.PRODUCT, it.productId) || {}
+				db.insert(T.PURCHASE_REQUEST_ITEM, {
+					requestId: request._id,
+					customerId: this.form.customerId,
+					customerName: this.form.customerName,
+					productId: it.productId,
+					productName: it.productName,
+					spec: it.spec,
+					qty: Number(it.qty) || 1,
+					purchasePrice: Number(product.purchasePrice) || Number(it.costPrice) || 0,
+					supplierId: '',
+					supplierName: '',
+					status: PURCHASE_REQUEST_STATUS.PENDING,
+					sourceQuoteOrderId: this.id,
+					sourceQuoteItemId: it._id
+				})
+			})
+			addOrderSystemFollow(this.id, `${this.session.name} 已生成采购申请单，新增 ${doneRows.length} 项成交商品采购需求`, this.session)
+			if (showToast) toast('已生成采购申请单', 'success')
+			if (goAfter) setTimeout(() => uni.navigateTo({ url: '/pages/purchase/request' }), 350)
+			return request
+		},
+		goPurchaseRequestFromOrder() {
+			this.createPurchaseRequestFromQuoteItems(this.items, true, true)
 		},
 		async removeOrder() {
 			if (await confirmDialog('确定删除该报价单及所有报价行？')) {

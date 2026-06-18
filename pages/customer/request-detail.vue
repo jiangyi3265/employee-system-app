@@ -34,12 +34,12 @@
 				<view class="row-between mt-m">
 					<view class="row gap-s">
 						<text class="t-sub" style="font-size:24rpx;">数量</text>
-						<input v-if="canEdit" class="mini-ipt" type="digit" v-model.number="it.qty" @blur="saveItem(it)" />
+						<input v-if="canEdit" class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" />
 						<text v-else class="t-bold">{{ it.qty }}</text>
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub" style="font-size:24rpx;">预期价</text>
-						<input v-if="canEdit" class="mini-ipt price-ipt" type="digit" v-model.number="it.customerExpect" @blur="saveItem(it)" />
+						<input v-if="canEdit" class="mini-ipt price-ipt" type="digit" v-model="it.customerExpect" @blur="saveItem(it)" />
 						<text v-else class="t-price">{{ money(it.customerExpect) }}</text>
 					</view>
 				</view>
@@ -52,7 +52,7 @@
 					</view>
 					<view class="row gap-s mt-s" v-if="canEdit">
 						<input class="support-input" v-model="it._supplierName" placeholder="供货商名称" />
-						<input class="support-input price" type="digit" v-model.number="it._supplierPrice" placeholder="单价" />
+						<input class="support-input price" type="digit" v-model="it._supplierPrice" placeholder="单价" />
 						<button class="btn btn-sm add-quote-btn" @click="addSupplierQuote(it)">添加</button>
 					</view>
 				</view>
