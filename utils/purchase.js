@@ -20,6 +20,7 @@ export function isPurchaseManager(session) {
 	if (session.role === ROLE.ADMIN) return true
 	if (session.role !== ROLE.EMPLOYEE) return false
 	const employee = db.get(T.EMPLOYEE, session.id) || {}
+	if (employee.isPurchaser) return true
 	const text = [employee.position, employee.remark, employee.name, session.name].filter(Boolean).join(' ')
 	return text.indexOf('采购') >= 0
 }

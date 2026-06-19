@@ -43,6 +43,28 @@ export function notifyAdmins(title, content, type = 'notice', refId = '', opts =
 	})
 }
 
+/** 发送给所有采购管理者（管理员 + 开了采购权限/职位含“采购”的员工） */
+export function notifyPurchaseManagers(title, content, type = 'purchase', refId = '', opts = {}) {
+	const managers = db.list(T.EMPLOYEE).filter((e) => !e.disabled && (
+		(e.role || ROLE.EMPLOYEE) === ROLE.ADMIN ||
+		e.isPurchaser ||
+		(e.position && e.position.indexOf('采购') >= 0)
+	))
+	return managers.map((e) => db.insert(T.MESSAGE, {
+		toType: 'user',
+		toId: e._id,
+		toRole: e.role || ROLE.EMPLOYEE,
+		toName: e.name,
+		title,
+		content,
+		type,
+		refId,
+		fromId: opts.fromId || '',
+		fromName: opts.fromName || '',
+		read: false
+	}))
+}
+
 /** 发送给指定用户 */
 export function sendToUser(toId, title, content, opts = {}) {
 	return db.insert(T.MESSAGE, {

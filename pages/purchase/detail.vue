@@ -1,6 +1,6 @@
 <template>
 	<view class="page">
-		<global-stats />
+		<global-stats v-if="!supplierView" />
 		<view class="card">
 			<text class="t-title mb-m">{{ preFlow ? '预采购单信息' : '采购订单信息' }}</text>
 			<view class="field" v-if="form.customerName">
@@ -12,14 +12,14 @@
 				<text class="field-input">{{ form.sourceEmployeeNames }}</text>
 			</view>
 			<view class="field">
-				<text class="field-label">供应商*</text>
-				<view class="field-input row" @click="pickSupplier">
-					<text :class="form.supplierName ? '' : 't-muted'">{{ form.supplierName || '点击选择供应商' }}</text>
+				<text class="field-label">供应商</text>
+				<view class="field-input row" @click="!supplierView && pickSupplier()">
+					<text :class="form.supplierName ? '' : 't-muted'">{{ form.supplierName || (supplierView ? '-' : '点击选择供应商') }}</text>
 				</view>
 			</view>
 			<view class="field">
 				<text class="field-label">运费</text>
-				<input class="field-input" type="digit" v-model="form.freight" placeholder="0" @blur="allocateFreight(true)" />
+				<input class="field-input" type="digit" v-model="form.freight" placeholder="0" @blur="allocateFreight(true)" :disabled="supplierView" />
 			</view>
 			<text class="t-muted mt-s">{{ preFlow ? '预采购单可先核价，采购入库后再同步产品成本。' : '保存采购明细后，可按数量自动分摊单件运费并同步产品成本。' }}</text>
 		</view>
@@ -28,9 +28,9 @@
 		<view class="card" v-if="id">
 			<view class="row-between mb-m">
 				<text class="t-title">采购明细</text>
-				<text class="t-primary" @click="addProductNav">+ 添加产品</text>
+				<text class="t-primary" v-if="!supplierView" @click="addProductNav">+ 添加产品</text>
 			</view>
-			<button class="btn btn-ghost btn-block btn-sm mb-m" v-if="items.length" @click="allocateFreight(true)">按数量分摊运费</button>
+			<button class="btn btn-ghost btn-block btn-sm mb-m" v-if="items.length && !supplierView" @click="allocateFreight(true)">按数量分摊运费</button>
 			<view class="empty" v-if="!items.length">暂无采购明细</view>
 			<view class="item-row" v-for="(it, i) in items" :key="it._id || i">
 				<view class="row-between">
@@ -38,7 +38,7 @@
 						<text class="t-bold product-link" style="font-size:28rpx;" @click.stop="editProduct(it.productId)">{{ it.productName }}</text>
 						<text class="t-sub">{{ it.spec }}</text>
 					</view>
-					<text class="t-danger" @click="removeItem(it, i)">删除</text>
+					<text class="t-danger" v-if="!supplierView" @click="removeItem(it, i)">删除</text>
 				</view>
 				<view class="row-between mt-s">
 					<view class="row gap-s">
@@ -50,17 +50,21 @@
 						<input class="mini-ipt" type="digit" v-model="it.purchasePrice" @blur="saveItem(it)" />
 					</view>
 				</view>
-				<view class="row-between mt-s">
+				<view class="row-between mt-s" v-if="!supplierView">
 					<view class="row gap-s">
 						<text class="t-sub">分摊运费</text>
 						<input class="mini-ipt" type="digit" v-model="it.freightShare" @blur="saveItem(it)" />
 					</view>
 					<text class="t-sub">小计：{{ money(it.qty * it.purchasePrice) }}</text>
 				</view>
+				<view class="row-between mt-s" v-else>
+					<text class="t-sub"> </text>
+					<text class="t-sub">小计：{{ money(it.qty * it.purchasePrice) }}</text>
+				</view>
 			</view>
 		</view>
 
-		<view style="margin: 30rpx 24rpx;">
+		<view style="margin: 30rpx 24rpx;" v-if="!supplierView">
 			<button class="btn btn-block" @click="saveOrder">{{ preFlow ? '保存预采购单' : '保存采购单' }}</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id && preFlow" @click="copyPrePurchaseList">复制采购清单</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id && preFlow" open-type="share">微信分享预采购单</button>
@@ -111,6 +115,7 @@ import { getSession } from '@/utils/auth.js'
 import { fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { calcPrices, getSettings, round2 } from '@/utils/pricing.js'
 import { PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
+import { sendToUser } from '@/utils/message.js'
 
 export default {
 	data() {
@@ -126,7 +131,8 @@ export default {
 			products: [],
 			productKw: '',
 			productTotal: 0,
-			session: {}
+			session: {},
+			supplierView: false
 		}
 	},
 	computed: {
@@ -141,17 +147,18 @@ export default {
 		}
 	},
 	onLoad(q) {
+		this.supplierView = !!(q && q.view === 'supplier')
 		const s = getSession()
-		if (!s) { uni.redirectTo({ url: '/pages/login/login' }); return }
-		this.session = s
+		if (!s && !this.supplierView) { uni.redirectTo({ url: '/pages/login/login' }); return }
+		this.session = s || {}
 		if (q && q.id) {
 			this.id = q.id
 			const o = db.get(T.PURCHASE_ORDER, q.id)
 			if (o) this.form = { ...this.form, ...o }
 			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: q.id })
 			this.refreshItemsFromProducts()
-			uni.setNavigationBarTitle({ title: o && (o.status === 'pre' || o.status === 'purchased') ? '编辑预采购单' : '编辑采购单' })
-		} else {
+			uni.setNavigationBarTitle({ title: this.supplierView ? '预采购单' : (o && (o.status === 'pre' || o.status === 'purchased') ? '编辑预采购单' : '编辑采购单') })
+		} else if (!this.supplierView) {
 			this.form.employeeId = s.id
 			this.form.employeeName = s.name
 			uni.setNavigationBarTitle({ title: '新建采购单' })
@@ -346,6 +353,17 @@ export default {
 			})
 			const requestIds = this.items.map((it) => it.sourcePurchaseRequestId).filter(Boolean)
 			Array.from(new Set(requestIds)).forEach((id) => refreshPurchaseRequestStatus(id))
+			// 通知申请员工：采购已完成
+			const notified = new Set()
+			Array.from(new Set(requestIds)).forEach((rid) => {
+				const req = db.get(T.PURCHASE_REQUEST, rid)
+				if (req && req.employeeId && !notified.has(req.employeeId)) {
+					notified.add(req.employeeId)
+					sendToUser(req.employeeId, '采购已完成', `您提交的采购申请（客户：${req.customerName || '-'}）已由 ${this.session.name} 完成采购`, {
+						type: 'purchase', refId: rid, fromId: this.session.id, fromName: this.session.name
+					})
+				}
+			})
 			toast('预采购已审核，员工端显示已采购', 'success')
 		},
 		stockInPurchase() {
@@ -416,7 +434,7 @@ export default {
 	onShareAppMessage() {
 		return {
 			title: `预采购单 ${this.form.supplierName || ''}`,
-			path: this.id ? `/pages/purchase/detail?id=${this.id}` : '/pages/purchase/list'
+			path: this.id ? `/pages/purchase/detail?id=${this.id}&view=supplier` : '/pages/purchase/list'
 		}
 	}
 }

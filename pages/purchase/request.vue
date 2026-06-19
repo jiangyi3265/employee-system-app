@@ -178,6 +178,7 @@ import { T, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { isPurchaseManager, refreshPurchaseRequestStatus, requestStatusLabel, startOfToday, PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
+import { notifyPurchaseManagers } from '@/utils/message.js'
 
 export default {
 	data() {
@@ -377,6 +378,7 @@ export default {
 			if (!this.form.customerId) return toast('请选择需求客户')
 			if (!this.draftItems.length) return toast('请添加采购商品')
 			let requestId = this.form._id
+			const isNewRequest = !requestId
 			const base = {
 				customerId: this.form.customerId,
 				customerName: this.form.customerName,
@@ -416,6 +418,15 @@ export default {
 				}
 			})
 			refreshPurchaseRequestStatus(requestId)
+			if (isNewRequest) {
+				notifyPurchaseManagers(
+					'新采购申请',
+					`${this.form.employeeName || this.session.name} 提交了采购申请（客户：${this.form.customerName}，${this.draftItems.length} 项）`,
+					'purchase',
+					requestId,
+					{ fromId: this.session.id, fromName: this.session.name }
+				)
+			}
 			this.loadRequests()
 			toast('采购申请已保存', 'success')
 		},

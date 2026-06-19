@@ -76,6 +76,9 @@ export function guardCurrentPage() {
 	const page = pages[pages.length - 1]
 	const route = normalizeRoute(page && page.route)
 	if (!route || redirecting) return true
+	// 供货商免登录查看分享的预采购单（分享链接带 view=supplier）
+	const opts = (page && page.options) || {}
+	if (route === 'pages/purchase/detail' && opts.view === 'supplier') return true
 	const session = getSession()
 	if (canAccess(route, session)) return true
 
