@@ -166,12 +166,9 @@ export default {
 				this.recipients = employees
 				return
 			}
-			const adminGroup = { id: '__group_admins__', group: 'admins', role: 'group', name: '管理员', label: '群发：管理员', sub: '发送给所有管理员' }
-			if (this.session.role === ROLE.EMPLOYEE) {
-				this.recipients = [adminGroup].concat(employees.filter((e) => e.role === ROLE.ADMIN))
-				return
-			}
+			// 员工 / 采购员 / 管理员 均可群发
 			const groups = [
+				{ id: '__group_admins__', group: 'admins', role: 'group', name: '管理员', label: '群发：管理员', sub: '发送给所有管理员' },
 				{ id: '__group_internal__', group: 'internal', role: 'group', name: '内部员工/管理员', label: '群发：内部员工/管理员', sub: '内部员工和管理员' },
 				{ id: '__group_customers__', group: 'customers', role: 'group', name: '全部客户', label: '群发：全部客户', sub: '所有已审核客户' }
 			]

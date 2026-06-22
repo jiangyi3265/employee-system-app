@@ -51,9 +51,12 @@
 						<text class="t-danger text-action" v-if="canEdit" @click="removeSupplierQuote(it, qi)">删除</text>
 					</view>
 					<view class="row gap-s mt-s" v-if="canEdit">
-						<input class="support-input" v-model="it._supplierName" placeholder="供货商名称" />
+						<input class="support-input" v-model="it._supplierName" placeholder="供货商名称" @input="supplierSuggest(it)" />
 						<input class="support-input price" type="digit" v-model="it._supplierPrice" placeholder="单价" />
 						<button class="btn btn-sm add-quote-btn" @click="addSupplierQuote(it)">添加</button>
+					</view>
+					<view v-if="canEdit && it._supplierName && it._supplierSuggestions && it._supplierSuggestions.length" style="display:flex;flex-wrap:wrap;gap:12rpx;margin-top:12rpx;">
+						<text v-for="(sname, si) in it._supplierSuggestions" :key="si" @click="pickSupplierSuggest(it, sname)" style="background:#edf3ff;color:#2563eb;font-size:24rpx;padding:8rpx 18rpx;border-radius:999rpx;border:1rpx solid #dbe8ff;">{{ sname }}</text>
 					</view>
 				</view>
 			</view>
@@ -131,7 +134,8 @@ export default {
 				customerExpect: Number(it.customerExpect) || Number(it.suggestPrice) || '',
 				supplierQuotes: Array.isArray(it.supplierQuotes) ? it.supplierQuotes : [],
 				_supplierName: '',
-				_supplierPrice: ''
+				_supplierPrice: '',
+				_supplierSuggestions: []
 			}
 		},
 		load() {
@@ -159,7 +163,7 @@ export default {
 		},
 		saveCart() {
 			if (!this.draftMode) return
-			const data = this.items.map(({ _supplierName, _supplierPrice, ...it }) => it)
+			const data = this.items.map(({ _supplierName, _supplierPrice, _supplierSuggestions, ...it }) => it)
 			uni.setStorageSync('sqms_cart', data)
 		},
 		saveItem(item) {
@@ -183,12 +187,29 @@ export default {
 			item.supplierQuotes.push({ name, price })
 			item._supplierName = ''
 			item._supplierPrice = ''
+			item._supplierSuggestions = []
 			if (this.draftMode) {
 				this.saveCart()
 			} else {
 				db.update(T.REQUEST_ITEM, item._id, { supplierQuotes: item.supplierQuotes.map((q) => ({ name: q.name, price: Number(q.price) || 0 })) })
 			}
 			toast('已添加供货商报价', 'success')
+		},
+		supplierSuggest(item) {
+			const kw = (item._supplierName || '').trim().toLowerCase()
+			if (!kw) { item._supplierSuggestions = []; return }
+			const names = new Set()
+			db.list(T.COMPETITOR).forEach((c) => { if (c.name) names.add(c.name) })
+			db.list(T.REQUEST_ITEM).forEach((ri) => {
+				(ri.supplierQuotes || []).forEach((q) => { if (q && q.name) names.add(q.name) })
+			})
+			item._supplierSuggestions = Array.from(names)
+				.filter((n) => n.toLowerCase().indexOf(kw) >= 0 && n !== item._supplierName)
+				.slice(0, 8)
+		},
+		pickSupplierSuggest(item, name) {
+			item._supplierName = name
+			item._supplierSuggestions = []
 		},
 		removeSupplierQuote(item, qi) {
 			item.supplierQuotes.splice(qi, 1)

@@ -41,7 +41,8 @@ export default {
 	data() { return { session: {}, all: [], list: [], tab: 'all' } },
 	computed: {
 		canGroupSend() {
-			return this.session.role === ROLE.ADMIN
+			// 内部人员（员工/采购员/管理员）均可群发；客户不可
+			return !!this.session.role && this.session.role !== ROLE.CUSTOMER
 		}
 	},
 	onShow() {
