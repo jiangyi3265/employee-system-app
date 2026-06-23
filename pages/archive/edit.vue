@@ -46,6 +46,10 @@
 					</picker>
 				</view>
 				<view class="field"><text class="field-label">职位</text><input class="field-input" v-model="form.position" placeholder="选填" /></view>
+				<view class="field">
+					<text class="field-label">采购员</text>
+					<switch :checked="form.isPurchaser" @change="form.isPurchaser = $event.detail.value" />
+				</view>
 				<view class="field"><text class="field-label">备注/负责事项</text><input class="field-input" v-model="form.remark" placeholder="如负责区域、品类或联系说明" /></view>
 				<view class="field">
 					<text class="field-label">停用</text>
@@ -149,7 +153,7 @@ export default {
 			if (this.type === 'customer') {
 				this.form = { name: '', phone: '', password: '', company: '', grade: 'C', pool: 'public', ownerId: '', ownerName: '', approved: false }
 			} else if (this.type === 'employee') {
-				this.form = { name: '', phone: '', password: '', role: ROLE.EMPLOYEE, position: '', remark: '', disabled: false }
+				this.form = { name: '', phone: '', password: '', role: ROLE.EMPLOYEE, position: '', isPurchaser: false, remark: '', disabled: false }
 			} else if (this.type === 'supplier') {
 				this.form = { name: '', contact: '', phone: '', address: '' }
 			} else {

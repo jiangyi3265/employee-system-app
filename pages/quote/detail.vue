@@ -102,7 +102,7 @@
 		<view style="margin: 30rpx 24rpx;">
 			<button class="btn btn-block" @click="saveOrder">{{ saveText }}</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id" @click="goExport">导出报价单</button>
-			<button class="btn btn-ghost btn-block mt-m" v-if="id && purchaseConvertibleCount" @click="goPurchaseRequestFromOrder">生成采购申请单</button>
+			<button class="btn btn-ghost btn-block mt-m" v-if="id && donePurchaseItemCount" @click="goPurchaseRequestFromOrder">{{ purchaseConvertibleCount ? '生成采购申请单' : '查看采购申请单' }}</button>
 			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="removeOrder">删除报价单</button>
 		</view>
 
@@ -129,8 +129,8 @@ import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { refreshOrderDealStatus, refreshCustomerOwner, orderFinance } from '@/utils/stats.js'
 import { profitRate, quoteAuditPatch, isQuotableQuoteItem } from '@/utils/pricing.js'
 import { addOrderFollow, addOrderSystemFollow, followActor, orderFollows } from '@/utils/follow.js'
-import { notifyAdmins, sendToUser } from '@/utils/message.js'
-import { PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
+import { notifyAdmins, notifyPurchaseManagers, sendToUser } from '@/utils/message.js'
+import { PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
 
 export default {
 	data() {
@@ -145,6 +145,7 @@ export default {
 			customers: [],
 			customerKw: '',
 			customerTotal: 0,
+			convertedPurchaseItemIds: [],
 			session: {}
 		}
 	},
@@ -166,8 +167,11 @@ export default {
 		},
 		purchaseConvertibleCount() {
 			return this.items.filter((it) => {
-				return it.status === 'done' && it._id && !String(it._id).startsWith('tmp_') && !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+				return it.status === 'done' && it._id && !String(it._id).startsWith('tmp_') && this.convertedPurchaseItemIds.indexOf(it._id) === -1
 			}).length
+		},
+		donePurchaseItemCount() {
+			return this.items.filter((it) => it.status === 'done' && it._id && !String(it._id).startsWith('tmp_')).length
 		},
 		finance() {
 			if (this.id) return orderFinance(this.id, this.form.dealStatus !== DEAL_STATUS.PENDING)
@@ -195,6 +199,7 @@ export default {
 			const o = db.get(T.QUOTE_ORDER, q.id)
 			if (o) this.form = { ...this.form, ...o }
 			this.items = db.list(T.QUOTE_ITEM, { orderId: q.id })
+			this.loadConvertedPurchaseItemIds()
 			this.loadFollows()
 			uni.setNavigationBarTitle({ title: '编辑报价单' })
 		} else {
@@ -202,6 +207,9 @@ export default {
 			this.form.employeeName = s.name
 			uni.setNavigationBarTitle({ title: '新建报价单' })
 		}
+	},
+	onShow() {
+		if (this.id) this.loadConvertedPurchaseItemIds()
 	},
 	methods: {
 		fmt(t) { return fmtDate(t, true) },
@@ -309,7 +317,6 @@ export default {
 			if (newStatus === 'done') refreshCustomerOwner(this.form.customerId)
 			if (oldStatus !== newStatus && this.id) {
 				addOrderSystemFollow(this.id, `${this.session.name} 将 ${it.productName} ${newStatus === 'done' ? '标记为已成交' : '取消成交'}`, this.session)
-				if (newStatus === 'done') this.createPurchaseRequestFromQuoteItems([it], true, false)
 				this.loadFollows()
 			}
 		},
@@ -371,6 +378,15 @@ export default {
 		loadFollows() {
 			if (!this.id) return
 			this.follows = orderFollows(this.id, this.session)
+		},
+		loadConvertedPurchaseItemIds() {
+			if (!this.id) {
+				this.convertedPurchaseItemIds = []
+				return
+			}
+			this.convertedPurchaseItemIds = db.list(T.PURCHASE_REQUEST_ITEM, { sourceQuoteOrderId: this.id })
+				.map((item) => item.sourceQuoteItemId)
+				.filter(Boolean)
 		},
 		submitFollow() {
 			const content = this.followText.trim()
@@ -510,13 +526,41 @@ export default {
 					sourceQuoteItemId: it._id
 				})
 			})
+			refreshPurchaseRequestStatus(request._id)
+			this.loadConvertedPurchaseItemIds()
 			addOrderSystemFollow(this.id, `${this.session.name} 已生成采购申请单，新增 ${doneRows.length} 项成交商品采购需求`, this.session)
+			notifyPurchaseManagers(
+				'成交报价采购申请',
+				`${this.form.employeeName || this.session.name} 从成交报价单生成采购申请（客户：${this.form.customerName}，${doneRows.length} 项）`,
+				'purchase',
+				request._id,
+				{
+					fromId: this.session.id,
+					fromName: this.session.name,
+					fromRole: this.session.role,
+					threadId: `purchase_request_${request._id}`
+				}
+			)
 			if (showToast) toast('已生成采购申请单', 'success')
-			if (goAfter) setTimeout(() => uni.navigateTo({ url: '/pages/purchase/request' }), 350)
+			if (goAfter) setTimeout(() => uni.navigateTo({ url: '/pages/purchase/request?requestId=' + request._id }), 350)
 			return request
 		},
 		goPurchaseRequestFromOrder() {
-			this.createPurchaseRequestFromQuoteItems(this.items, true, true)
+			if (this.purchaseConvertibleCount) {
+				this.createPurchaseRequestFromQuoteItems(this.items, true, true)
+				return
+			}
+			const request = this.quotePurchaseRequest()
+			if (request) {
+				uni.navigateTo({ url: '/pages/purchase/request?requestId=' + request._id })
+				return
+			}
+			toast('该报价单暂无可生成采购申请的成交明细')
+		},
+		quotePurchaseRequest() {
+			const row = db.list(T.PURCHASE_REQUEST_ITEM, { sourceQuoteOrderId: this.id }, 'createTime', true)
+				.find((item) => item.requestId)
+			return row ? db.get(T.PURCHASE_REQUEST, row.requestId) : null
 		},
 		async removeOrder() {
 			if (await confirmDialog('确定删除该报价单及所有报价行？')) {

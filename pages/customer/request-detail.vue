@@ -200,6 +200,7 @@ export default {
 			if (!kw) { item._supplierSuggestions = []; return }
 			const names = new Set()
 			db.list(T.COMPETITOR).forEach((c) => { if (c.name) names.add(c.name) })
+			db.list(T.SUPPLIER).forEach((s) => { if (s.name) names.add(s.name) })
 			db.list(T.REQUEST_ITEM).forEach((ri) => {
 				(ri.supplierQuotes || []).forEach((q) => { if (q && q.name) names.add(q.name) })
 			})

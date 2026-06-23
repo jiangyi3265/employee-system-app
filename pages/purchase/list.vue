@@ -2,8 +2,8 @@
 	<view class="page">
 		<global-stats />
 		<view class="sub-hero">
-			<text class="sub-hero-title">采购管理</text>
-			<text class="sub-hero-desc">按供应商和时间追踪采购订单，便于同步产品成本</text>
+			<text class="sub-hero-title">{{ pageTitle }}</text>
+			<text class="sub-hero-desc">{{ pageDesc }}</text>
 			<view class="metric-row">
 				<view class="metric-pill"><text class="metric-num">{{ allCount }}</text><text class="metric-label">采购单</text></view>
 				<view class="metric-pill"><text class="metric-num">{{ supplierCount }}</text><text class="metric-label">供应商</text></view>
@@ -27,7 +27,7 @@
 			<text class="inline-action" @click="clearFilters">重置</text>
 		</view>
 
-		<view class="sub-empty" v-if="!list.length">暂无采购订单，点击右下角新增采购</view>
+		<view class="sub-empty" v-if="!list.length">{{ emptyText }}</view>
 
 		<view class="list-card order" v-for="o in list" :key="o._id" @click="go(o._id)">
 			<view class="row-between">
@@ -41,7 +41,7 @@
 			</view>
 		</view>
 
-		<view class="fab" @click="add">+</view>
+		<view class="fab" v-if="canAddOrder" @click="add">+</view>
 	</view>
 </template>
 
@@ -53,12 +53,26 @@ import { getSession } from '@/utils/auth.js'
 import { isPurchaseManager } from '@/utils/purchase.js'
 
 export default {
-	data() { return { list: [], all: [], kw: '', suppliers: [], supplierId: '', supplierName: '', startDate: '', endDate: '', session: {}, managerMode: false } },
+	data() { return { list: [], all: [], kw: '', suppliers: [], supplierId: '', supplierName: '', startDate: '', endDate: '', session: {}, managerMode: false, statusFilter: '' } },
 	computed: {
+		pageTitle() { return this.statusFilter === 'pre' ? '预采购单' : '采购管理' },
+		pageDesc() {
+			return this.statusFilter === 'pre'
+				? '查看已生成的预采购单和已采购记录，关掉小程序后也能继续处理'
+				: '按供应商和时间追踪正式采购订单，便于同步产品成本'
+		},
+		emptyText() {
+			return this.statusFilter === 'pre' ? '暂无预采购单，请先在采购申请中生成预采购单' : '暂无采购订单，点击右下角新增采购'
+		},
+		canAddOrder() { return this.statusFilter !== 'pre' },
 		allCount() { return this.all.length },
 		totalFreight() { return this.all.reduce((s, o) => s + (Number(o.freight) || 0), 0) },
 		supplierCount() { return new Set(this.all.map((o) => o.supplierId).filter(Boolean)).size },
 		supplierOptions() { return [{ _id: '', name: '全部供应商' }].concat(this.suppliers) }
+	},
+	onLoad(q) {
+		this.statusFilter = q && q.status ? q.status : ''
+		uni.setNavigationBarTitle({ title: this.statusFilter === 'pre' ? '预采购单' : '采购管理' })
 	},
 	onShow() {
 		const s = getSession()
@@ -107,6 +121,8 @@ export default {
 			this.suppliers = db.list(T.SUPPLIER, null, 'name')
 			this.all = db.list(T.PURCHASE_ORDER, null, 'createTime', true)
 			if (!this.managerMode) this.all = this.all.filter((o) => o.employeeId === this.session.id)
+			if (this.statusFilter === 'pre') this.all = this.all.filter((o) => o.status === 'pre' || o.status === 'purchased')
+			else if (this.statusFilter) this.all = this.all.filter((o) => o.status === this.statusFilter)
 			const kw = this.kw.trim()
 			const start = this.dateStart(this.startDate)
 			const end = this.dateEnd(this.endDate)

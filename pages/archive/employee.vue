@@ -23,6 +23,7 @@
 					<view class="row gap-s">
 						<text class="t-title" style="font-size:30rpx;">{{ e.name }}</text>
 						<text class="tag" :class="e.role === 'admin' ? 'tag-red' : 'tag-blue'">{{ roleLabel(e.role) }}</text>
+						<text class="tag tag-green" v-if="e.isPurchaser">采购员</text>
 					</view>
 					<text class="t-sub mt-s">手机：{{ e.phone }} · 职位：{{ e.position || '-' }}</text>
 					<text class="t-muted mt-s" v-if="e.remark">备注：{{ e.remark }}</text>

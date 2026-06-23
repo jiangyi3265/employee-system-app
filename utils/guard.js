@@ -60,6 +60,13 @@ function normalizeRoute(route) {
 	return (route || '').replace(/^\//, '')
 }
 
+function isSupplierSharePage(route, opts = {}) {
+	if (route !== 'pages/purchase/detail') return false
+	if (opts.view === 'supplier' || opts.supplier === '1' || opts.supplier === 'true') return true
+	const href = typeof window !== 'undefined' ? `${window.location.href} ${window.location.hash}` : ''
+	return /[?&](view=supplier|supplier=(1|true))(&|$)/.test(href)
+}
+
 export function canAccess(route, session) {
 	const path = normalizeRoute(route)
 	if (PUBLIC_ROUTES.has(path)) return true
@@ -76,9 +83,7 @@ export function guardCurrentPage() {
 	const page = pages[pages.length - 1]
 	const route = normalizeRoute(page && page.route)
 	if (!route || redirecting) return true
-	// 供货商免登录查看分享的预采购单（分享链接带 view=supplier）
-	const opts = (page && page.options) || {}
-	if (route === 'pages/purchase/detail' && opts.view === 'supplier') return true
+	if (isSupplierSharePage(route, (page && page.options) || {})) return true
 	const session = getSession()
 	if (canAccess(route, session)) return true
 

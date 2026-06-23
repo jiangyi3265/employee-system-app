@@ -5,9 +5,19 @@
 import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
 
+function withWechatSync(record, opts = {}) {
+	return {
+		wechatNotify: opts.wechatNotify !== false,
+		wechatUnreadSync: true,
+		wechatSyncStatus: opts.wechatSyncStatus || 'pending',
+		wechatSyncTime: opts.wechatSyncTime || 0,
+		...record
+	}
+}
+
 /** 发送给所有员工与管理员（广播） */
 export function notifyEmployees(title, content, type = 'notice', refId = '', opts = {}) {
-	return db.insert(T.MESSAGE, {
+	return db.insert(T.MESSAGE, withWechatSync({
 		toType: 'employee',
 		toId: '',
 		title,
@@ -19,12 +29,12 @@ export function notifyEmployees(title, content, type = 'notice', refId = '', opt
 		fromRole: opts.fromRole || '',
 		threadId: opts.threadId || '',
 		read: false
-	})
+	}, opts))
 }
 
 /** 发送给管理员；员工发起的低价审核默认走这里 */
 export function notifyAdmins(title, content, type = 'notice', refId = '', opts = {}) {
-	return db.insert(T.MESSAGE, {
+	return db.insert(T.MESSAGE, withWechatSync({
 		toType: 'admins',
 		toId: '',
 		toRole: ROLE.ADMIN,
@@ -40,7 +50,7 @@ export function notifyAdmins(title, content, type = 'notice', refId = '', opts =
 		groupType: 'admins',
 		groupName: '管理员',
 		read: false
-	})
+	}, opts))
 }
 
 /** 发送给所有采购管理者（管理员 + 开了采购权限/职位含“采购”的员工） */
@@ -50,7 +60,7 @@ export function notifyPurchaseManagers(title, content, type = 'purchase', refId 
 		e.isPurchaser ||
 		(e.position && e.position.indexOf('采购') >= 0)
 	))
-	return managers.map((e) => db.insert(T.MESSAGE, {
+	return managers.map((e) => db.insert(T.MESSAGE, withWechatSync({
 		toType: 'user',
 		toId: e._id,
 		toRole: e.role || ROLE.EMPLOYEE,
@@ -61,18 +71,23 @@ export function notifyPurchaseManagers(title, content, type = 'purchase', refId 
 		refId,
 		fromId: opts.fromId || '',
 		fromName: opts.fromName || '',
+		fromRole: opts.fromRole || '',
+		threadId: opts.threadId || '',
 		read: false
-	}))
+	}, opts)))
 }
 
 /** 发送给指定用户 */
 export function sendToUser(toId, title, content, opts = {}) {
-	return db.insert(T.MESSAGE, {
+	return db.insert(T.MESSAGE, withWechatSync({
 		toType: 'user', toId, title, content,
 		type: opts.type || 'notice', refId: opts.refId || '',
 		fromId: opts.fromId || '', fromName: opts.fromName || '',
+		fromRole: opts.fromRole || '',
+		toRole: opts.toRole || '',
+		toName: opts.toName || '',
 		threadId: opts.threadId || '', read: false
-	})
+	}, opts))
 }
 
 /** 当前用户可见的消息 */
@@ -96,7 +111,11 @@ export function unreadCount(session) {
 }
 
 export function markRead(id) {
-	db.update(T.MESSAGE, id, { read: true })
+	db.update(T.MESSAGE, id, {
+		read: true,
+		wechatUnreadSync: true,
+		wechatSyncStatus: 'pending'
+	})
 }
 
 /** 简单两方会话线程 */
@@ -119,7 +138,7 @@ export function postGroupMessage(fromSession, target, content) {
 			role: e.role || ROLE.EMPLOYEE,
 			name: e.name
 		}))
-	return rows.filter((row) => row.id && row.id !== fromSession.id).map((row) => db.insert(T.MESSAGE, {
+	return rows.filter((row) => row.id && row.id !== fromSession.id).map((row) => db.insert(T.MESSAGE, withWechatSync({
 		toType: 'user',
 		toId: row.id,
 		toRole: row.role,
@@ -134,12 +153,12 @@ export function postGroupMessage(fromSession, target, content) {
 		groupType: group,
 		groupName: target.name || '',
 		read: false
-	}))
+	})))
 }
 
 export function postThread(threadId, fromSession, toId, content) {
 	const target = typeof toId === 'object' ? toId : { id: toId }
-	return db.insert(T.MESSAGE, {
+	return db.insert(T.MESSAGE, withWechatSync({
 		toType: target.toType || 'user',
 		toId: target.id || '',
 		toRole: target.role || '',
@@ -149,5 +168,5 @@ export function postThread(threadId, fromSession, toId, content) {
 		title: '站内信', type: 'chat',
 		fromId: fromSession.id, fromName: fromSession.name,
 		fromRole: fromSession.role, read: false
-	})
+	}))
 }

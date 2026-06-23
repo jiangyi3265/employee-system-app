@@ -54,8 +54,8 @@ export default {
 	},
 	methods: {
 		fmt(t) { return fmtDate(t, true) },
-		typeLabel(t) { return ({ request: '报价申请', suggestion: '建议回复', quote: '报价反馈', chat: '站内信', notice: '通知' })[t] || '通知' },
-		typeTag(t) { return ({ request: 'tag-blue', suggestion: 'tag-green', quote: 'tag-orange', chat: 'tag-gray' })[t] || 'tag-gray' },
+		typeLabel(t) { return ({ request: '报价申请', suggestion: '建议回复', quote: '报价反馈', purchase: '采购消息', chat: '站内信', notice: '通知' })[t] || '通知' },
+		typeTag(t) { return ({ request: 'tag-blue', suggestion: 'tag-green', quote: 'tag-orange', purchase: 'tag-green', chat: 'tag-gray' })[t] || 'tag-gray' },
 		applyFilter() {
 			if (this.tab === 'unread') this.list = this.all.filter((m) => !m.read)
 			else if (this.tab === 'read') this.list = this.all.filter((m) => m.read)
@@ -80,6 +80,8 @@ export default {
 				uni.navigateTo({ url: '/pages/customer/orders' })
 			} else if (m.type === 'request' && m.refId) {
 				uni.navigateTo({ url: '/pages/admin/request-detail?id=' + m.refId })
+			} else if (m.type === 'purchase' && m.refId) {
+				uni.navigateTo({ url: '/pages/purchase/request?requestId=' + encodeURIComponent(m.refId) })
 			} else if (m.threadId) {
 				const sentGroup = m.fromId === this.session.id && (m.groupType || m.toType === 'admins')
 				const toId = sentGroup ? '' : (m.fromId === this.session.id ? (m.toId || '') : (m.fromId || ''))

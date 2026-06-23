@@ -46,6 +46,10 @@
 					<text class="action-title">内部群发</text>
 					<text class="t-muted">发送给内部员工和管理员</text>
 				</view>
+				<view class="action-row" @click="composeGroup('admins')">
+					<text class="action-title">管理员</text>
+					<text class="t-muted">发送给所有管理员</text>
+				</view>
 				<view class="action-row" @click="composeGroup('customers')">
 					<text class="action-title">全部客户</text>
 					<text class="t-muted">发送给所有已审核客户</text>
@@ -101,7 +105,7 @@ export default {
 			return this.compose || !this.threadId
 		},
 		canGroupSend() {
-			return this.session.role === ROLE.ADMIN
+			return !!this.session.role && this.session.role !== ROLE.CUSTOMER
 		},
 		recipientText() {
 			if (this.toGroup) return `群发：${this.toName}`

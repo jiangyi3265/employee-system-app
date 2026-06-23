@@ -132,6 +132,7 @@ export default {
 			productKw: '',
 			productTotal: 0,
 			session: {},
+			routeQuery: {},
 			supplierView: false
 		}
 	},
@@ -147,30 +148,74 @@ export default {
 		}
 	},
 	onLoad(q) {
-		this.supplierView = !!(q && q.view === 'supplier')
+		this.routeQuery = q || {}
+		this.supplierView = this.isSupplierShareRoute(q)
 		const s = getSession()
 		if (!s && !this.supplierView) { uni.redirectTo({ url: '/pages/login/login' }); return }
 		this.session = s || {}
-		if (q && q.id) {
-			this.id = q.id
-			const o = db.get(T.PURCHASE_ORDER, q.id)
-			if (o) this.form = { ...this.form, ...o }
-			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: q.id })
-			this.refreshItemsFromProducts()
-			uni.setNavigationBarTitle({ title: this.supplierView ? '预采购单' : (o && (o.status === 'pre' || o.status === 'purchased') ? '编辑预采购单' : '编辑采购单') })
+		const routeId = this.routeValue('id', q)
+		if (routeId) {
+			this.loadOrder(routeId)
 		} else if (!this.supplierView) {
 			this.form.employeeId = s.id
 			this.form.employeeName = s.name
 			uni.setNavigationBarTitle({ title: '新建采购单' })
 		}
 	},
+	onReady() {
+		if (this.isSupplierShareRoute()) this.supplierView = true
+	},
 	onShow() {
+		this.syncRouteState()
 		if (this.id) {
 			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: this.id })
 			this.refreshItemsFromProducts()
 		}
 	},
+	mounted() {
+		if (typeof window !== 'undefined') {
+			this._routeSyncHandler = () => this.syncRouteState()
+			window.addEventListener('hashchange', this._routeSyncHandler)
+		}
+	},
+	beforeUnmount() {
+		this.removeRouteSyncHandler()
+	},
+	beforeDestroy() {
+		this.removeRouteSyncHandler()
+	},
 	methods: {
+		removeRouteSyncHandler() {
+			if (typeof window !== 'undefined' && this._routeSyncHandler) {
+				window.removeEventListener('hashchange', this._routeSyncHandler)
+				this._routeSyncHandler = null
+			}
+		},
+		syncRouteState() {
+			if (this.isSupplierShareRoute()) this.supplierView = true
+			const routeId = this.routeValue('id')
+			if (routeId && routeId !== this.id) this.loadOrder(routeId)
+		},
+		isSupplierShareRoute(q = this.routeQuery) {
+			const fromQuery = !!(q && (q.view === 'supplier' || q.supplier === '1' || q.supplier === 'true'))
+			const href = typeof window !== 'undefined' ? `${window.location.href} ${window.location.hash}` : ''
+			return fromQuery || /[?&](view=supplier|supplier=(1|true))(&|$)/.test(href)
+		},
+		routeValue(name, q = this.routeQuery) {
+			const href = typeof window !== 'undefined' ? `${window.location.href} ${window.location.hash}` : ''
+			const match = href.match(new RegExp(`[?&]${name}=([^&#\\s]+)`))
+			if (match) return decodeURIComponent(match[1])
+			if (q && q[name] != null) return q[name]
+			return ''
+		},
+		loadOrder(id) {
+			this.id = id
+			const o = db.get(T.PURCHASE_ORDER, id)
+			if (o) this.form = { ...this.form, ...o }
+			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: id })
+			this.refreshItemsFromProducts()
+			uni.setNavigationBarTitle({ title: this.supplierView ? '预采购单' : (o && (o.status === 'pre' || o.status === 'purchased') ? '编辑预采购单' : '编辑采购单') })
+		},
 		money(n) { return fmtMoney(n) },
 		refreshItemsFromProducts() {
 			this.items = this.items.map((it) => {
@@ -187,6 +232,7 @@ export default {
 			})
 		},
 		pickSupplier() {
+			if (this.supplierView) return
 			this.supKw = ''
 			this.loadSuppliers()
 			this.showSupPicker = true
@@ -223,6 +269,7 @@ export default {
 			uni.navigateTo({ url: '/pages/archive/edit?type=supplier' })
 		},
 		addProductNav() {
+			if (this.supplierView) return toast('分享页不能新增商品')
 			this.productKw = ''
 			this.loadProducts()
 			this.showProdPicker = true
@@ -253,6 +300,7 @@ export default {
 			uni.navigateTo({ url: '/pages/product/detail' })
 		},
 		editProduct(id) {
+			if (this.supplierView) return
 			if (!id) return
 			uni.navigateTo({ url: '/pages/product/detail?id=' + id })
 		},
@@ -308,10 +356,12 @@ export default {
 			toast('已同步更新所有产品价格', 'success')
 		},
 		removeItem(it, i) {
+			if (this.supplierView) return toast('分享页不能删除明细')
 			if (it._id) db.remove(T.PURCHASE_ITEM, it._id)
 			this.items.splice(i, 1)
 		},
 		saveOrder() {
+			if (this.supplierView) return toast('分享页只能修改数量和采购价')
 			if (!this.form.supplierId) return toast('请选择供应商')
 			if (this.id) {
 				db.update(T.PURCHASE_ORDER, this.id, {
@@ -360,7 +410,14 @@ export default {
 				if (req && req.employeeId && !notified.has(req.employeeId)) {
 					notified.add(req.employeeId)
 					sendToUser(req.employeeId, '采购已完成', `您提交的采购申请（客户：${req.customerName || '-'}）已由 ${this.session.name} 完成采购`, {
-						type: 'purchase', refId: rid, fromId: this.session.id, fromName: this.session.name
+						type: 'purchase',
+						refId: rid,
+						fromId: this.session.id,
+						fromName: this.session.name,
+						fromRole: this.session.role,
+						toName: req.employeeName || '',
+						toRole: 'employee',
+						threadId: `purchase_request_${rid}`
 					})
 				}
 			})
@@ -409,6 +466,7 @@ export default {
 			uni.setClipboardData({ data: this.buildPrePurchaseText(), success: () => toast('预采购清单已复制', 'success') })
 		},
 		async removeOrder() {
+			if (this.supplierView) return toast('分享页不能删除采购单')
 			if (await confirmDialog('确定删除该采购单及所有明细？')) {
 				const oldItems = db.list(T.PURCHASE_ITEM, { purchaseOrderId: this.id })
 				if (this.preFlow) {

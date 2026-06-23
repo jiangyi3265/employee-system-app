@@ -34,6 +34,13 @@
 				</view>
 			</view>
 			<text class="t-muted mt-s">找不到商品时可先新增商品；采购价默认带入商品采购价，申请前可以修改。</text>
+			<view class="quote-import-bar">
+				<view class="col flex1">
+					<text class="t-bold">成交报价单</text>
+					<text class="t-muted mt-s">只导入已标记成交、且未申报过采购的明细</text>
+				</view>
+				<text class="inline-action" @click="openQuotePicker">选择报价单</text>
+			</view>
 		</view>
 
 		<view class="card">
@@ -65,7 +72,10 @@
 		<view class="card">
 			<view class="row-between mb-m">
 				<text class="t-title">{{ managerMode ? '今日采购汇总' : '我的采购申请' }}</text>
-				<button class="btn btn-sm" v-if="managerMode && pendingItemCount" @click="generatePrePurchase">生成预采购单</button>
+				<view class="row gap-s" v-if="managerMode">
+					<button class="btn btn-sm" v-if="pendingItemCount" @click="generatePrePurchase">生成预采购单</button>
+					<button class="btn btn-sm btn-ghost" @click="goPrePurchaseList">预采购单</button>
+				</view>
 			</view>
 			<view class="empty-lite" v-if="!requestRows.length">暂无采购申请</view>
 			<view class="summary-card" v-for="r in requestRows" :key="r._id">
@@ -169,6 +179,28 @@
 				<view class="empty-lite" v-if="!products.length">暂无匹配商品</view>
 			</view>
 		</view>
+
+		<view class="modal-mask" v-if="showQuotePicker" @click="showQuotePicker = false">
+			<view class="modal-body" @click.stop>
+				<view class="row-between mb-m">
+					<text class="t-title">选择成交报价单</text>
+					<text class="inline-action" @click="showQuotePicker = false">关闭</text>
+				</view>
+				<input class="input-box modal-search mb-s" v-model="quoteKw" placeholder="搜索客户 / 员工 / 报价单" @input="loadQuoteOrders" />
+				<view class="picker-item" v-for="q in quoteRows" :key="q._id" @click="selectQuoteOrder(q)">
+					<view class="col flex1">
+						<text class="t-bold">{{ q.customerName || '未命名客户' }}</text>
+						<text class="t-muted mt-s">{{ q.employeeName || '-' }} · {{ fmt(q.createTime) }}</text>
+					</view>
+					<view class="col quote-pick-meta">
+						<text class="tag tag-green">成交 {{ q.doneCount }} 项</text>
+						<text class="t-muted mt-s" v-if="q.convertibleCount">可申报 {{ q.convertibleCount }} 项</text>
+						<text class="t-muted mt-s" v-else>已全部申报</text>
+					</view>
+				</view>
+				<view class="empty-lite" v-if="!quoteRows.length">{{ managerMode ? '暂无成交报价单' : '暂无本人的成交报价单' }}</view>
+			</view>
+		</view>
 	</view>
 </template>
 
@@ -185,7 +217,7 @@ export default {
 		return {
 			session: {},
 			managerMode: false,
-			form: { _id: '', employeeId: '', employeeName: '', customerId: '', customerName: '', supplierId: '', supplierName: '', status: PURCHASE_REQUEST_STATUS.PENDING },
+			form: { _id: '', employeeId: '', employeeName: '', customerId: '', customerName: '', supplierId: '', supplierName: '', status: PURCHASE_REQUEST_STATUS.PENDING, sourceQuoteOrderId: '' },
 			draftItems: [],
 			requestRows: [],
 			requestItemMap: {},
@@ -202,13 +234,20 @@ export default {
 			supplierTargetItem: null,
 			products: [],
 			productKw: '',
-			showProductPicker: false
+			showProductPicker: false,
+			quoteRows: [],
+			quoteKw: '',
+			showQuotePicker: false
 		}
 	},
 	computed: {
 		pendingItemCount() {
 			return Object.values(this.requestItemMap).reduce((count, rows) => {
-				return count + rows.filter((it) => it.status !== PURCHASE_REQUEST_STATUS.CONVERTED).length
+				return count + rows.filter((it) => {
+					return it.status !== PURCHASE_REQUEST_STATUS.PRE &&
+						it.status !== PURCHASE_REQUEST_STATUS.PURCHASED &&
+						it.status !== PURCHASE_REQUEST_STATUS.CONVERTED
+				}).length
 			}, 0)
 		}
 	},
@@ -219,6 +258,11 @@ export default {
 		this.managerMode = isPurchaseManager(s)
 		this.resetForm()
 		if (q && q.quoteOrderId) this.loadFromQuote(q.quoteOrderId)
+		if (q && q.requestId) {
+			this.loadRequests()
+			const request = db.get(T.PURCHASE_REQUEST, q.requestId)
+			if (request) this.editRequest(request)
+		}
 	},
 	onShow() {
 		if (this.session.id) {
@@ -242,9 +286,49 @@ export default {
 				customerName: '',
 				supplierId: '',
 				supplierName: '',
-				status: PURCHASE_REQUEST_STATUS.PENDING
+				status: PURCHASE_REQUEST_STATUS.PENDING,
+				sourceQuoteOrderId: ''
 			}
 			this.draftItems = []
+		},
+		goPrePurchaseList() {
+			uni.navigateTo({ url: '/pages/purchase/list?status=pre' })
+		},
+		openQuotePicker() {
+			this.quoteKw = ''
+			this.loadQuoteOrders()
+			this.showQuotePicker = true
+		},
+		quoteConvertibleCount(orderId) {
+			return db.list(T.QUOTE_ITEM, { orderId, status: 'done' }).filter((it) => {
+				return it._id && !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+			}).length
+		},
+		quoteDoneCount(orderId) {
+			return db.list(T.QUOTE_ITEM, { orderId, status: 'done' }).filter((it) => it._id).length
+		},
+		loadQuoteOrders() {
+			const kw = this.quoteKw.trim().toLowerCase()
+			let rows = db.list(T.QUOTE_ORDER, null, 'createTime', true).map((order) => ({
+				...order,
+				doneCount: this.quoteDoneCount(order._id),
+				convertibleCount: this.quoteConvertibleCount(order._id)
+			})).filter((order) => {
+				// 默认列出有成交明细的报价单；普通员工只看本人的，管理/采购可看全部。已申报过的也保留展示。
+				if (!order.doneCount) return false
+				if (!this.managerMode && order.employeeId !== this.session.id) return false
+				if (!kw) return true
+				return [order.customerName, order.employeeName, order._id].filter(Boolean).join(' ').toLowerCase().indexOf(kw) >= 0
+			})
+			this.quoteRows = rows.slice(0, kw ? 80 : 30)
+		},
+		async selectQuoteOrder(order) {
+			if (!order || !order._id) return
+			if (!order.convertibleCount) return toast('该报价单的成交明细已全部申报采购')
+			if (this.draftItems.length && !(await confirmDialog('导入报价单会替换当前未保存明细，确定继续？'))) return
+			this.loadFromQuote(order._id)
+			this.showQuotePicker = false
+			if (this.draftItems.length) this.saveRequest()
 		},
 		openEmployeePicker() {
 			this.employeeKw = ''
@@ -385,6 +469,7 @@ export default {
 				supplierId: this.form.supplierId,
 				supplierName: this.form.supplierName,
 				status: this.form.status || PURCHASE_REQUEST_STATUS.PENDING,
+				sourceQuoteOrderId: this.form.sourceQuoteOrderId || (this.draftItems.find((it) => it.sourceQuoteOrderId) || {}).sourceQuoteOrderId || '',
 				employeeId: this.managerMode ? this.form.employeeId : this.session.id,
 				employeeName: this.managerMode ? this.form.employeeName : this.session.name
 			}
@@ -424,7 +509,12 @@ export default {
 					`${this.form.employeeName || this.session.name} 提交了采购申请（客户：${this.form.customerName}，${this.draftItems.length} 项）`,
 					'purchase',
 					requestId,
-					{ fromId: this.session.id, fromName: this.session.name }
+					{
+						fromId: this.session.id,
+						fromName: this.session.name,
+						fromRole: this.session.role,
+						threadId: `purchase_request_${requestId}`
+					}
 				)
 			}
 			this.loadRequests()
@@ -460,9 +550,11 @@ export default {
 				customerName: r.customerName,
 				supplierId: r.supplierId || '',
 				supplierName: r.supplierName || '',
-				status: r.status || PURCHASE_REQUEST_STATUS.PENDING
+				status: r.status || PURCHASE_REQUEST_STATUS.PENDING,
+				sourceQuoteOrderId: r.sourceQuoteOrderId || ''
 			}
-			this.draftItems = this.requestItems(r._id).map((it) => ({ ...it }))
+			const rows = this.requestItems(r._id)
+			this.draftItems = (rows.length ? rows : db.list(T.PURCHASE_REQUEST_ITEM, { requestId: r._id })).map((it) => ({ ...it }))
 		},
 		addProductForRequest(r) {
 			this.editRequest(r)
@@ -558,6 +650,7 @@ export default {
 			this.form.employeeName = order.employeeName || this.session.name
 			this.form.customerId = order.customerId
 			this.form.customerName = order.customerName
+			this.form.sourceQuoteOrderId = orderId
 			this.draftItems = db.list(T.QUOTE_ITEM, { orderId, status: 'done' }).filter((it) => {
 				return !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
 			}).map((it) => {
@@ -583,6 +676,8 @@ export default {
 
 <style lang="scss" scoped>
 .picker-text { min-height: 58rpx; line-height: 1.4; white-space: normal; word-break: break-all; }
+.quote-import-bar { display: flex; flex-direction: row; align-items: center; gap: 18rpx; margin-top: 22rpx; padding: 18rpx; border: 1rpx solid #dbeafe; border-radius: 14rpx; background: #f8fbff; }
+.quote-pick-meta { align-items: flex-end; flex: none; }
 .request-item { padding: 20rpx 0; border-bottom: 1rpx solid #f0f1f4; }
 .request-item:last-child { border-bottom: none; }
 .product-link { color: #2563eb; font-size: 28rpx; }
