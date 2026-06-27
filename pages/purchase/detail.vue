@@ -52,6 +52,13 @@
 				</view>
 				<view class="row-between mt-s" v-if="!supplierView">
 					<view class="row gap-s">
+						<text class="t-sub">销售价</text>
+						<input class="mini-ipt" type="digit" v-model="it.salePrice" @blur="saveItem(it)" />
+					</view>
+					<text class="t-sub">毛利空间：{{ money(grossMargin(it)) }}</text>
+				</view>
+				<view class="row-between mt-s" v-if="!supplierView">
+					<view class="row gap-s">
 						<text class="t-sub">分摊运费</text>
 						<input class="mini-ipt" type="digit" v-model="it.freightShare" @blur="saveItem(it)" />
 					</view>
@@ -217,6 +224,40 @@ export default {
 			uni.setNavigationBarTitle({ title: this.supplierView ? '预采购单' : (o && (o.status === 'pre' || o.status === 'purchased') ? '编辑预采购单' : '编辑采购单') })
 		},
 		money(n) { return fmtMoney(n) },
+		defaultSalePrice(row = {}) {
+			return Number(row.salePrice) || Number(row.price) || Number(row.suggestPrice) || Number(row.retailPrice) || Number(row.minPrice) || 0
+		},
+		itemSalePrice(item = {}) {
+			const salePrice = Number(item.salePrice) || 0
+			if (salePrice > 0) return salePrice
+			const product = item.productId ? db.get(T.PRODUCT, item.productId) : null
+			return product ? this.defaultSalePrice(product) : 0
+		},
+		grossMargin(item = {}) {
+			return this.itemSalePrice(item) - (Number(item.purchasePrice) || 0)
+		},
+		validatePurchaseCost(item = {}) {
+			const name = item.productName || '商品'
+			const purchasePrice = Number(item.purchasePrice) || 0
+			const salePrice = this.itemSalePrice(item)
+			if (salePrice <= 0) {
+				toast(`${name} 缺少销售价，不能采购`)
+				return false
+			}
+			if (purchasePrice <= 0) {
+				toast(`${name} 请填写采购价`)
+				return false
+			}
+			if (purchasePrice >= salePrice) {
+				toast(`${name} 采购价必须小于销售价`)
+				return false
+			}
+			item.salePrice = salePrice
+			return true
+		},
+		validateItemsForPurchase() {
+			return this.items.every((item) => this.validatePurchaseCost(item))
+		},
 		refreshItemsFromProducts() {
 			this.items = this.items.map((it) => {
 				const p = db.get(T.PRODUCT, it.productId)
@@ -224,6 +265,7 @@ export default {
 				const patch = {}
 				if (it.productName !== p.name) patch.productName = p.name
 				if (it.spec !== p.spec) patch.spec = p.spec
+				if (!Number(it.salePrice)) patch.salePrice = this.defaultSalePrice(p)
 				if (Object.keys(patch).length && it._id) {
 					db.update(T.PURCHASE_ITEM, it._id, patch)
 					return { ...it, ...patch }
@@ -313,16 +355,18 @@ export default {
 				supplierId: this.form.supplierId, supplierName: this.form.supplierName,
 				customerId: this.form.customerId || '',
 				customerName: this.form.customerName || '',
-				qty: 1, purchasePrice: p.purchasePrice || 0, freightShare: 0
+				qty: 1, purchasePrice: p.purchasePrice || 0, salePrice: this.defaultSalePrice(p), freightShare: 0
 			})
 			this.items.push(item)
 			this.showProdPicker = false
 			this.allocateFreight(true)
 		},
 		saveItem(it) {
+			if (!this.validatePurchaseCost(it)) return
 			if (it._id) db.update(T.PURCHASE_ITEM, it._id, {
 				qty: Number(it.qty) || 0,
 				purchasePrice: Number(it.purchasePrice) || 0,
+				salePrice: this.itemSalePrice(it),
 				freightShare: Number(it.freightShare) || 0
 			})
 			this.allocateFreight(true, false)
@@ -360,9 +404,16 @@ export default {
 			if (it._id) db.remove(T.PURCHASE_ITEM, it._id)
 			this.items.splice(i, 1)
 		},
-		saveOrder() {
-			if (this.supplierView) return toast('分享页只能修改数量和采购价')
-			if (!this.form.supplierId) return toast('请选择供应商')
+		saveOrder(showTip = true) {
+			if (this.supplierView) {
+				toast('分享页只能修改数量和采购价')
+				return false
+			}
+			if (!this.form.supplierId) {
+				toast('请选择供应商')
+				return false
+			}
+			if (this.items.length && !this.validateItemsForPurchase()) return false
 			if (this.id) {
 				db.update(T.PURCHASE_ORDER, this.id, {
 					supplierId: this.form.supplierId,
@@ -381,12 +432,13 @@ export default {
 				this.id = o._id
 			}
 			this.allocateFreight(true, false)
-			toast('已保存', 'success')
+			if (showTip) toast('已保存', 'success')
+			return true
 		},
 		approvePrePurchase() {
 			if (!this.id) return
 			if (!this.form.supplierId) return toast('请选择供应商')
-			this.saveOrder()
+			if (!this.saveOrder(false)) return
 			db.update(T.PURCHASE_ORDER, this.id, {
 				status: 'purchased',
 				approvedTime: Date.now(),
@@ -426,7 +478,7 @@ export default {
 		stockInPurchase() {
 			if (!this.id) return
 			if (!this.form.supplierId) return toast('请选择供应商')
-			this.saveOrder()
+			if (!this.saveOrder(false)) return
 			db.update(T.PURCHASE_ORDER, this.id, {
 				status: 'approved',
 				stockInTime: Date.now(),

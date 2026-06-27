@@ -33,7 +33,7 @@
 					<text :class="form.supplierName ? '' : 't-muted'">{{ form.supplierName || '可不选择' }}</text>
 				</view>
 			</view>
-			<text class="t-muted mt-s">找不到商品时可先新增商品；采购价默认带入商品采购价，申请前可以修改。</text>
+			<text class="t-muted mt-s">找不到商品时可先新增商品；采购价默认带入商品采购价，销售价用于采购控制成本。</text>
 			<view class="quote-import-bar">
 				<view class="col flex1">
 					<text class="t-bold">成交报价单</text>
@@ -60,6 +60,7 @@
 				<view class="request-grid mt-s">
 					<view class="mini-field"><text class="mini-label">数量</text><input class="mini-ipt" type="digit" v-model="it.qty" /></view>
 					<view class="mini-field"><text class="mini-label">采购价</text><input class="mini-ipt" type="digit" v-model="it.purchasePrice" /></view>
+					<view class="mini-field"><text class="mini-label">销售价</text><input class="mini-ipt" type="digit" v-model="it.salePrice" /></view>
 				</view>
 				<view class="row-between mt-s">
 					<text class="t-muted supplier-line">供货商：{{ it.supplierName || form.supplierName || '未指定' }}</text>
@@ -89,13 +90,14 @@
 				<view class="summary-item" v-for="it in requestItems(r._id)" :key="it._id">
 					<view class="col flex1">
 						<text class="t-sub t-bold">{{ it.productName }}</text>
-						<text class="t-muted mt-s">{{ it.spec || '-' }} · 数量 {{ it.qty }} · 采购价 {{ money(it.purchasePrice) }}</text>
+						<text class="t-muted mt-s">{{ it.spec || '-' }} · 数量 {{ it.qty }} · 采购价 {{ money(it.purchasePrice) }} · 销售价 {{ money(itemSalePrice(it)) }}</text>
 						<text class="t-muted mt-s">供货商：{{ it.supplierName || '未关联' }}</text>
 					</view>
 					<view class="col item-actions" v-if="managerMode && it.status !== 'converted'">
 						<text class="inline-action" @click="openSupplierPicker('savedItem', it)">供货商</text>
 						<input class="inline-price" type="digit" v-model="it.qty" @blur="saveRequestItemInline(it)" />
 						<input class="inline-price" type="digit" v-model="it.purchasePrice" @blur="saveRequestItemInline(it)" />
+						<input class="inline-price" type="digit" v-model="it.salePrice" @blur="saveRequestItemInline(it)" />
 						<text class="t-danger text-action" @click="removeSavedItem(it)">删除</text>
 					</view>
 				</view>
@@ -173,7 +175,7 @@
 				<view class="picker-item" v-for="p in products" :key="p._id" @click="selectProduct(p)">
 					<view class="col flex1">
 						<text class="t-bold">{{ p.name }}</text>
-						<text class="t-muted mt-s">{{ p.spec || '-' }} · 采购价 {{ money(p.purchasePrice) }}</text>
+						<text class="t-muted mt-s">{{ p.spec || '-' }} · 采购价 {{ money(p.purchasePrice) }} · 建议销售价 {{ money(defaultSalePrice(p)) }}</text>
 					</view>
 				</view>
 				<view class="empty-lite" v-if="!products.length">暂无匹配商品</view>
@@ -273,6 +275,37 @@ export default {
 	methods: {
 		fmt(t) { return fmtDate(t, true) },
 		money(n) { return fmtMoney(n) },
+		defaultSalePrice(row = {}) {
+			return Number(row.salePrice) || Number(row.price) || Number(row.suggestPrice) || Number(row.retailPrice) || Number(row.minPrice) || 0
+		},
+		itemSalePrice(item = {}) {
+			const salePrice = Number(item.salePrice) || 0
+			if (salePrice > 0) return salePrice
+			const product = item.productId ? db.get(T.PRODUCT, item.productId) : null
+			return product ? this.defaultSalePrice(product) : 0
+		},
+		validatePurchaseCost(item = {}) {
+			const name = item.productName || '商品'
+			const purchasePrice = Number(item.purchasePrice) || 0
+			const salePrice = this.itemSalePrice(item)
+			if (salePrice <= 0) {
+				toast(`${name} 请填写销售价`)
+				return false
+			}
+			if (purchasePrice <= 0) {
+				toast(`${name} 请填写采购价`)
+				return false
+			}
+			if (purchasePrice >= salePrice) {
+				toast(`${name} 采购价必须小于销售价`)
+				return false
+			}
+			item.salePrice = salePrice
+			return true
+		},
+		validatePurchaseRows(rows = []) {
+			return rows.every((item) => this.validatePurchaseCost(item))
+		},
 		statusLabel(status) { return requestStatusLabel(status) },
 		statusTag(status) {
 			return { pending: 'tag-orange', pre: 'tag-blue', purchased: 'tag-green', converted: 'tag-gray' }[status] || 'tag-gray'
@@ -436,6 +469,7 @@ export default {
 				spec: p.spec,
 				qty: 1,
 				purchasePrice: Number(p.purchasePrice) || 0,
+				salePrice: this.defaultSalePrice(p),
 				supplierId: this.form.supplierId,
 				supplierName: this.form.supplierName,
 				status: PURCHASE_REQUEST_STATUS.PENDING
@@ -461,6 +495,7 @@ export default {
 			if (this.managerMode && !this.form.employeeId) return toast('请选择申请员工')
 			if (!this.form.customerId) return toast('请选择需求客户')
 			if (!this.draftItems.length) return toast('请添加采购商品')
+			if (!this.validatePurchaseRows(this.draftItems)) return
 			let requestId = this.form._id
 			const isNewRequest = !requestId
 			const base = {
@@ -490,6 +525,7 @@ export default {
 					spec: it.spec,
 					qty: Number(it.qty) || 1,
 					purchasePrice: Number(it.purchasePrice) || 0,
+					salePrice: this.itemSalePrice(it),
 					supplierId: it.supplierId || this.form.supplierId,
 					supplierName: it.supplierName || this.form.supplierName,
 					status: it.status || PURCHASE_REQUEST_STATUS.PENDING,
@@ -531,7 +567,7 @@ export default {
 			this.requestRows = rows
 			const map = {}
 			rows.forEach((r) => {
-				map[r._id] = db.list(T.PURCHASE_REQUEST_ITEM, { requestId: r._id }).map((it) => ({ ...it }))
+				map[r._id] = db.list(T.PURCHASE_REQUEST_ITEM, { requestId: r._id }).map((it) => ({ ...it, salePrice: this.itemSalePrice(it) }))
 			})
 			this.requestItemMap = map
 		},
@@ -554,7 +590,7 @@ export default {
 				sourceQuoteOrderId: r.sourceQuoteOrderId || ''
 			}
 			const rows = this.requestItems(r._id)
-			this.draftItems = (rows.length ? rows : db.list(T.PURCHASE_REQUEST_ITEM, { requestId: r._id })).map((it) => ({ ...it }))
+			this.draftItems = (rows.length ? rows : db.list(T.PURCHASE_REQUEST_ITEM, { requestId: r._id })).map((it) => ({ ...it, salePrice: this.itemSalePrice(it) }))
 		},
 		addProductForRequest(r) {
 			this.editRequest(r)
@@ -562,9 +598,11 @@ export default {
 		},
 		saveRequestItemInline(it) {
 			if (!it || !it._id) return
+			if (!this.validatePurchaseCost(it)) return
 			db.update(T.PURCHASE_REQUEST_ITEM, it._id, {
 				qty: Number(it.qty) || 1,
 				purchasePrice: Number(it.purchasePrice) || 0,
+				salePrice: this.itemSalePrice(it),
 				supplierId: it.supplierId || '',
 				supplierName: it.supplierName || ''
 			})
@@ -592,6 +630,7 @@ export default {
 			if (!rows.length) return toast('没有可生成的采购明细')
 			const missing = rows.find((it) => !it.supplierId)
 			if (missing) return toast(`${missing.productName} 未关联供货商`)
+			if (!this.validatePurchaseRows(rows)) return
 			const groups = {}
 			rows.forEach((it) => {
 				const key = `${it.customerId || 'no_customer'}_${it.supplierId}`
@@ -628,6 +667,7 @@ export default {
 						customerName: it.customerName,
 						qty: Number(it.qty) || 1,
 						purchasePrice: Number(it.purchasePrice) || 0,
+						salePrice: this.itemSalePrice(it),
 						freightShare: 0,
 						sourcePurchaseRequestId: it.requestId,
 						sourcePurchaseRequestItemId: it._id
@@ -661,6 +701,7 @@ export default {
 					spec: it.spec,
 					qty: Number(it.qty) || 1,
 					purchasePrice: Number(product.purchasePrice) || Number(it.costPrice) || 0,
+					salePrice: Number(it.price) || this.defaultSalePrice(product),
 					supplierId: '',
 					supplierName: '',
 					status: PURCHASE_REQUEST_STATUS.PENDING,

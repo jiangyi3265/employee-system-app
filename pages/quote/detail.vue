@@ -519,6 +519,7 @@ export default {
 					spec: it.spec,
 					qty: Number(it.qty) || 1,
 					purchasePrice: Number(product.purchasePrice) || Number(it.costPrice) || 0,
+					salePrice: Number(it.price) || Number(product.suggestPrice) || Number(product.retailPrice) || Number(product.minPrice) || 0,
 					supplierId: '',
 					supplierName: '',
 					status: PURCHASE_REQUEST_STATUS.PENDING,
