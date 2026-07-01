@@ -83,10 +83,32 @@
 <script>
 import { db } from '@/store/db.js'
 import { T, ROLE, ROLE_LABEL, CUSTOMER_GRADE, POOL_LABEL as POOL_LABEL_MAP } from '@/store/schema.js'
+import { deleteRemoteRecord } from '@/store/remote.js'
+import { isRemoteSyncEnabled } from '@/store/sync.js'
 import { toast, confirmDialog } from '@/utils/format.js'
 import { getSession } from '@/utils/auth.js'
 
 const TABLE_MAP = { customer: T.CUSTOMER, employee: T.EMPLOYEE, supplier: T.SUPPLIER, competitor: T.COMPETITOR }
+
+function sameId(a, b) {
+	const left = String(a || '')
+	const right = String(b || '')
+	return !!right && left === right
+}
+
+function idSet(rows) {
+	return new Set((rows || []).map((row) => String(row && row._id || '')).filter(Boolean))
+}
+
+function setHas(set, value) {
+	const id = String(value || '')
+	return !!id && set.has(id)
+}
+
+function countLabel(label, rows) {
+	const count = rows && rows.length ? rows.length : 0
+	return count ? `${label}${count}条` : ''
+}
 
 export default {
 	data() {
@@ -176,9 +198,112 @@ export default {
 			toast('已保存', 'success')
 			setTimeout(() => uni.navigateBack(), 300)
 		},
+		customerCascadePlan() {
+			const customerId = this.id
+			const quoteOrders = db.list(T.QUOTE_ORDER, { customerId })
+			const quoteOrderIds = idSet(quoteOrders)
+			const quoteItems = db.list(T.QUOTE_ITEM).filter((row) =>
+				sameId(row.customerId, customerId) || setHas(quoteOrderIds, row.orderId)
+			)
+			const quoteItemIds = idSet(quoteItems)
+			const requestOrders = db.list(T.REQUEST_ORDER, { customerId })
+			const requestOrderIds = idSet(requestOrders)
+			const requestItems = db.list(T.REQUEST_ITEM).filter((row) =>
+				sameId(row.customerId, customerId) ||
+				setHas(requestOrderIds, row.requestOrderId) ||
+				setHas(requestOrderIds, row.requestId)
+			)
+			const requestItemIds = idSet(requestItems)
+			const follows = db.list(T.FOLLOW).filter((row) =>
+				sameId(row.customerId, customerId) ||
+				setHas(quoteOrderIds, row.orderId) ||
+				setHas(quoteOrderIds, row.relatedOrderId)
+			)
+			const suggestions = db.list(T.SUGGESTION, { customerId })
+			const suggestionIds = idSet(suggestions)
+			const competitorQuotes = db.list(T.COMP_QUOTE).filter((row) =>
+				sameId(row.sourceCustomerId, customerId) || sameId(row.customerId, customerId)
+			)
+			const competitorQuoteIds = idSet(competitorQuotes)
+			const relatedIds = new Set([
+				...quoteOrderIds,
+				...quoteItemIds,
+				...requestOrderIds,
+				...requestItemIds,
+				...suggestionIds,
+				...competitorQuoteIds
+			])
+			const messages = db.list(T.MESSAGE).filter((row) =>
+				sameId(row.fromId, customerId) ||
+				sameId(row.toId, customerId) ||
+				setHas(relatedIds, row.refId)
+			)
+			return { quoteOrders, quoteItems, requestOrders, requestItems, follows, suggestions, competitorQuotes, messages }
+		},
+		competitorCascadePlan() {
+			const competitorId = this.id
+			const name = this.form.name || ''
+			const competitorQuotes = db.list(T.COMP_QUOTE).filter((row) =>
+				sameId(row.competitorId, competitorId) ||
+				(!row.competitorId && name && row.competitorName === name)
+			)
+			return { competitorQuotes }
+		},
+		removeByRows(table, rows) {
+			const ids = idSet(rows)
+			if (!ids.size) return 0
+			return db.removeWhere(table, { _id: (value) => setHas(ids, value) })
+		},
+		applyCustomerCascade(plan) {
+			this.removeByRows(T.MESSAGE, plan.messages)
+			this.removeByRows(T.FOLLOW, plan.follows)
+			this.removeByRows(T.COMP_QUOTE, plan.competitorQuotes)
+			this.removeByRows(T.QUOTE_ITEM, plan.quoteItems)
+			this.removeByRows(T.QUOTE_ORDER, plan.quoteOrders)
+			this.removeByRows(T.REQUEST_ITEM, plan.requestItems)
+			this.removeByRows(T.REQUEST_ORDER, plan.requestOrders)
+			this.removeByRows(T.SUGGESTION, plan.suggestions)
+		},
+		applyCompetitorCascade(plan) {
+			this.removeByRows(T.COMP_QUOTE, plan.competitorQuotes)
+		},
+		deleteConfirmMessage(plan) {
+			if (this.type === 'customer') {
+				const labels = [
+					countLabel('报价单', plan.quoteOrders),
+					countLabel('报价明细', plan.quoteItems),
+					countLabel('客户申请', plan.requestOrders),
+					countLabel('申请明细', plan.requestItems),
+					countLabel('跟进', plan.follows),
+					countLabel('建议/投诉', plan.suggestions),
+					countLabel('同行报价来源', plan.competitorQuotes),
+					countLabel('站内消息', plan.messages)
+				].filter(Boolean)
+				const detail = labels.length ? `将同步删除：${labels.join('、')}。` : '未发现关联业务数据。'
+				return `确定删除该客户？\n${detail}\n采购单、采购申请和采购明细会保留。`
+			}
+			if (this.type === 'competitor') {
+				const detail = countLabel('同行报价', plan.competitorQuotes)
+				return `确定删除该同行？\n${detail ? `将同步删除：${detail}。` : '未发现关联同行报价。'}`
+			}
+			return '确定删除？'
+		},
 		async remove() {
-			if (await confirmDialog('确定删除？')) {
-				const table = TABLE_MAP[this.type]
+			const table = TABLE_MAP[this.type]
+			const plan = this.type === 'customer'
+				? this.customerCascadePlan()
+				: (this.type === 'competitor' ? this.competitorCascadePlan() : null)
+			if (await confirmDialog(this.deleteConfirmMessage(plan))) {
+				if (isRemoteSyncEnabled()) {
+					try {
+						await deleteRemoteRecord(table, this.id)
+					} catch (e) {
+						toast(e && e.message ? e.message : '服务器删除失败，请稍后重试')
+						return
+					}
+				}
+				if (this.type === 'customer') this.applyCustomerCascade(plan)
+				if (this.type === 'competitor') this.applyCompetitorCascade(plan)
 				db.remove(table, this.id)
 				toast('已删除', 'success')
 				setTimeout(() => uni.navigateBack(), 300)

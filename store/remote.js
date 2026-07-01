@@ -64,6 +64,12 @@ export function pushTables(tables) {
 	})
 }
 
+export function deleteRemoteRecord(table, ids) {
+	return apiRequest(`/sqms/${encodeURIComponent(table)}/${encodeURIComponent(ids)}`, {
+		method: 'DELETE'
+	})
+}
+
 export function loginRemote(role, phone, password) {
 	return apiRequest('/sqms/auth/login', {
 		method: 'POST',
