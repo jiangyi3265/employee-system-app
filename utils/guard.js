@@ -3,7 +3,9 @@ import { ROLE } from '@/store/schema.js'
 
 const PUBLIC_ROUTES = new Set([
 	'pages/login/login',
-	'pages/login/register'
+	'pages/login/register',
+	'pages/login/service',
+	'pages/login/privacy'
 ])
 
 const COMMON_ROUTES = new Set([

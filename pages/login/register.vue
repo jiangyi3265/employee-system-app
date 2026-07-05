@@ -10,23 +10,24 @@
 		</view>
 
 		<view class="reg-panel">
+			<policy-consent v-model="agreed" hint="用于客户注册审核、账号登录、报价沟通与必要业务联系；未同意前不会提交手机号等注册资料。" />
 			<view class="reg-field">
 				<text class="reg-label">姓名</text>
-				<input class="reg-input" v-model="form.name" placeholder="请输入姓名" />
+				<input class="reg-input" :class="{ disabled: !agreed }" :disabled="!agreed" v-model="form.name" :placeholder="agreed ? '请输入姓名' : '请先勾选同意协议'" />
 			</view>
 			<view class="reg-field">
 				<text class="reg-label">公司名称</text>
-				<input class="reg-input" v-model="form.company" placeholder="请输入公司名称（选填）" />
+				<input class="reg-input" :class="{ disabled: !agreed }" :disabled="!agreed" v-model="form.company" :placeholder="agreed ? '请输入公司名称（选填）' : '请先勾选同意协议'" />
 			</view>
 			<view class="reg-field">
 				<text class="reg-label">手机号</text>
-				<input class="reg-input" type="number" maxlength="11" v-model="form.phone" placeholder="请输入手机号" />
+				<input class="reg-input" :class="{ disabled: !agreed }" :disabled="!agreed" type="number" maxlength="11" v-model="form.phone" :placeholder="agreed ? '请输入手机号' : '请先勾选同意协议'" />
 			</view>
 			<view class="reg-field">
 				<text class="reg-label">密码</text>
-				<input class="reg-input" password v-model="form.password" placeholder="请设置登录密码" />
+				<input class="reg-input" :class="{ disabled: !agreed }" :disabled="!agreed" password v-model="form.password" :placeholder="agreed ? '请设置登录密码' : '请先勾选同意协议'" />
 			</view>
-			<button class="btn btn-block reg-submit" @click="submit">提交注册</button>
+			<button class="btn btn-block reg-submit" :disabled="!agreed" @click="submit">提交注册</button>
 			<view class="reg-note">
 				<text>注册后需管理员审核，通过后可使用手机号和密码登录</text>
 			</view>
@@ -40,10 +41,11 @@ import { toast } from '@/utils/format.js'
 
 export default {
 	data() {
-		return { form: { name: '', company: '', phone: '', password: '' } }
+		return { agreed: false, form: { name: '', company: '', phone: '', password: '' } }
 	},
 	methods: {
 		submit() {
+			if (!this.agreed) return toast('请先阅读并同意用户服务协议和隐私政策')
 			const f = this.form
 			if (!f.name || !f.phone || !f.password) return toast('请填写姓名、手机号、密码')
 			if (f.phone.length !== 11) return toast('手机号格式不正确')
@@ -75,6 +77,8 @@ export default {
 .reg-label { font-size: 25rpx; color: #667085; margin-bottom: 12rpx; font-weight: 500; }
 .reg-input { height: 88rpx; line-height: 88rpx; background: #f3f6fb; border-radius: 18rpx; padding: 0 28rpx; font-size: 29rpx; color: #1f2937; border: 1rpx solid #e8edf5; }
 .reg-input:focus { border-color: #9bbcff; background: #f8fbff; }
+.reg-input.disabled { color: #98a2b3; background: #eef2f7; }
 .reg-submit { margin-top: 12rpx; height: 88rpx; border-radius: 18rpx; box-shadow: 0 12rpx 26rpx rgba(37, 99, 235, 0.2); }
+button[disabled].reg-submit { opacity: 0.58; box-shadow: none; }
 .reg-note { margin-top: 22rpx; padding: 18rpx 22rpx; background: #edf3ff; border: 1rpx solid #dbe8ff; border-radius: 18rpx; color: #667085; font-size: 24rpx; line-height: 1.6; text-align: center; }
 </style>

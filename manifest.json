@@ -51,6 +51,7 @@
     /* 小程序特有相关 */
     "mp-weixin" : {
         "appid" : "wx939a7fab88addbb2",
+        "__usePrivacyCheck__" : true,
         "setting" : {
             "urlCheck" : true,
             "ignoreDevUnusedFiles" : false,

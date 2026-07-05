@@ -5,6 +5,8 @@
 		{ "path": "pages/mine/mine", "style": { "navigationBarTitleText": "我的" } },
 		{ "path": "pages/login/login", "style": { "navigationBarTitleText": "登录", "navigationStyle": "custom" } },
 		{ "path": "pages/login/register", "style": { "navigationBarTitleText": "客户注册" } },
+		{ "path": "pages/login/service", "style": { "navigationBarTitleText": "用户服务协议" } },
+		{ "path": "pages/login/privacy", "style": { "navigationBarTitleText": "隐私政策" } },
 		{ "path": "pages/product/list", "style": { "navigationBarTitleText": "产品基础信息" } },
 		{ "path": "pages/product/detail", "style": { "navigationBarTitleText": "产品详情" } },
 		{ "path": "pages/product/settings", "style": { "navigationBarTitleText": "价格参数设置" } },

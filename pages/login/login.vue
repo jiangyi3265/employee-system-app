@@ -21,17 +21,18 @@
 			</view>
 
 			<view class="form">
+				<policy-consent v-model="agreed" />
 				<view class="ipt">
 					<text class="ipt-label">手机号</text>
-					<input class="ipt-field" type="number" v-model="phone" placeholder="请输入手机号" maxlength="11" />
+					<input class="ipt-field" :class="{ disabled: !agreed }" :disabled="!agreed" type="number" v-model="phone" :placeholder="agreed ? '请输入手机号' : '请先勾选同意协议'" maxlength="11" />
 				</view>
 				<view class="ipt">
 					<text class="ipt-label">密码</text>
-					<input class="ipt-field" password v-model="password" placeholder="请输入密码" />
+					<input class="ipt-field" :class="{ disabled: !agreed }" :disabled="!agreed" password v-model="password" :placeholder="agreed ? '请输入密码' : '请先勾选同意协议'" />
 				</view>
 
-				<button class="btn btn-block mt-l" @click="doLogin">登录</button>
-				<button class="btn btn-ghost btn-block mt-m" @click="doWechat">{{ wechatButtonText }}</button>
+				<button class="btn btn-block mt-l" :disabled="!agreed" @click="doLogin">登录</button>
+				<button class="btn btn-ghost btn-block mt-m" :disabled="!agreed" @click="doWechat">{{ wechatButtonText }}</button>
 
 				<view class="row-between mt-m">
 					<text class="t-muted" v-if="tab === 'customer'" @click="goRegister">客户注册</text>
@@ -73,6 +74,7 @@ export default {
 			tab: 'employee',
 			phone: '',
 			password: '',
+			agreed: false,
 			showContact: false
 		}
 	},
@@ -85,7 +87,13 @@ export default {
 		}
 	},
 	methods: {
+		ensureAgreed() {
+			if (this.agreed) return true
+			toast('请先阅读并同意用户服务协议和隐私政策')
+			return false
+		},
 		doLogin() {
+			if (!this.ensureAgreed()) return
 			if (!this.phone || !this.password) return toast('请输入手机号和密码')
 			const res = this.tab === 'employee'
 				? loginEmployee(this.phone, this.password)
@@ -95,6 +103,7 @@ export default {
 			setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 300)
 		},
 		async doWechat() {
+			if (!this.ensureAgreed()) return
 			const role = this.tab === 'employee' ? ROLE.EMPLOYEE : ROLE.CUSTOMER
 			// 微信一键登录仅用于"已绑定"账号；未绑定的由后端提示先用手机号密码登录后到【我的】绑定
 			const res = await loginWechat(role)
@@ -134,8 +143,10 @@ export default {
 .ipt-label { font-size: 25rpx; color: #667085; margin-bottom: 12rpx; font-weight: 500; }
 .ipt-field { height: 88rpx; line-height: 88rpx; background: #f3f6fb; border-radius: 18rpx; padding: 0 28rpx; font-size: 29rpx; color: #1f2937; border: 1rpx solid #e8edf5; }
 .ipt-field:focus { border-color: #9bbcff; background: #f8fbff; }
+.ipt-field.disabled { color: #98a2b3; background: #eef2f7; }
 .btn { border-radius: 18rpx; height: 88rpx; box-shadow: 0 12rpx 26rpx rgba(37, 99, 235, 0.2); }
 .btn-ghost { box-shadow: none; background: #edf3ff; }
+button[disabled].btn { opacity: 0.58; box-shadow: none; }
 
 .demo { margin-top: 34rpx; border-top: 1rpx solid #e8edf5; padding-top: 26rpx; }
 .demo-title { font-size: 24rpx; color: #98a2b3; }
