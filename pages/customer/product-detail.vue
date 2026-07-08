@@ -28,6 +28,7 @@
 		</view>
 
 		<view style="margin: 30rpx 24rpx;">
+			<button class="btn btn-ghost btn-block" open-type="share">转发商品</button>
 			<button class="btn btn-block" @click="addToCart">加入申请报价</button>
 		</view>
 	</view>
@@ -37,6 +38,7 @@
 import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtMoney, toast } from '@/utils/format.js'
+import { enableShareMenu, productShare } from '@/utils/share.js'
 
 export default {
 	data() { return { id: '', product: {} } },
@@ -54,10 +56,14 @@ export default {
 		}
 	},
 	onLoad(q) {
+		enableShareMenu()
 		if (q && q.id) {
 			this.id = q.id
 			this.product = db.get(T.PRODUCT, q.id) || {}
 		}
+	},
+	onShareAppMessage() {
+		return productShare(this.product, '/pages/customer/products')
 	},
 	methods: {
 		money(n) { return fmtMoney(n) },
@@ -83,4 +89,5 @@ export default {
 
 <style lang="scss" scoped>
 .field-input { white-space: normal; word-break: break-all; line-height: 1.5; }
+.btn-ghost { margin-bottom: 18rpx; box-shadow: none; background: #edf3ff; }
 </style>

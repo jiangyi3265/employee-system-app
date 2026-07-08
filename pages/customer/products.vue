@@ -32,6 +32,7 @@
 					<text class="t-price t-lg">{{ money(p.suggestPrice) }}</text>
 					<text class="t-muted mt-s" style="font-size:22rpx;">零售价: {{ money(p.retailPrice) }}</text>
 					<text class="inline-action mt-s">查看详情</text>
+					<button class="share-pill" open-type="share" :data-id="p._id" @click.stop>转发</button>
 				</view>
 			</view>
 		</view>
@@ -42,6 +43,7 @@
 import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtMoney } from '@/utils/format.js'
+import { enableShareMenu, productShare } from '@/utils/share.js'
 
 export default {
 	data() { return { list: [], all: [], kw: '', cartCount: 0 } },
@@ -52,9 +54,15 @@ export default {
 		}
 	},
 	onShow() {
+		enableShareMenu()
 		this.load()
 		const cart = uni.getStorageSync('sqms_cart') || []
 		this.cartCount = cart.length
+	},
+	onShareAppMessage(res) {
+		const id = res && res.target && res.target.dataset ? res.target.dataset.id : ''
+		const product = id ? db.get(T.PRODUCT, id) : null
+		return productShare(product, '/pages/customer/products')
 	},
 	methods: {
 		money(n) { return fmtMoney(n) },
@@ -73,4 +81,6 @@ export default {
 
 <style lang="scss" scoped>
 .prod:active { transform: scale(0.995); }
+.share-pill { margin: 12rpx 0 0; min-width: 112rpx; height: 54rpx; line-height: 54rpx; padding: 0 18rpx; border-radius: 999rpx; background: #edf3ff; color: #2563eb; font-size: 24rpx; box-shadow: none; }
+.share-pill::after { border: none; }
 </style>

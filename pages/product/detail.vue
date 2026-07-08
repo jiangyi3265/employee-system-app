@@ -103,7 +103,8 @@
 		</view>
 
 		<view style="margin: 30rpx 24rpx;">
-			<button class="btn btn-block" @click="save">保存</button>
+			<button class="btn btn-ghost btn-block" v-if="id" open-type="share">转发产品</button>
+			<button class="btn btn-block mt-m" @click="save">保存</button>
 			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="remove">删除产品</button>
 		</view>
 	</view>
@@ -114,11 +115,13 @@ import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { calcPrices, getSettings, isQuotableQuoteItem } from '@/utils/pricing.js'
 import { toast, confirmDialog, fmtMoney, fmtDate } from '@/utils/format.js'
+import { enableShareMenu, productShare } from '@/utils/share.js'
 
 export default {
 	data() {
 		return {
 			id: '',
+			originalName: '',
 			form: {
 				name: '', spec: '', brand: '', category: '', attr1: '', attr2: '',
 				unitSmall: '个', unitMedium: '包', unitLarge: '箱',
@@ -141,16 +144,23 @@ export default {
 		totalSmall() { return (Number(this.form.largeToMedium) || 0) * (Number(this.form.mediumToSmall) || 0) }
 	},
 	onLoad(q) {
+		enableShareMenu()
 		if (q && q.id) {
 			this.id = q.id
 			const p = db.get(T.PRODUCT, q.id)
-			if (p) this.form = { ...this.form, ...p }
+			if (p) {
+				this.form = { ...this.form, ...p }
+				this.originalName = p.name || ''
+			}
 			this.loadHistory()
 			uni.setNavigationBarTitle({ title: '编辑产品' })
 		} else {
 			uni.setNavigationBarTitle({ title: '新增产品' })
 		}
 		this.competitors = db.list(T.COMPETITOR, null, 'name')
+	},
+	onShareAppMessage() {
+		return productShare({ ...this.form, _id: this.id }, '/pages/customer/products')
 	},
 	methods: {
 		money(n) { return fmtMoney(n) },
@@ -219,14 +229,18 @@ export default {
 		},
 		save() {
 			const f = this.form
-			if (!f.name.trim()) return toast('请输入产品名称')
+			const name = f.name.trim()
+			if (!name) return toast('请输入产品名称')
 			if (!f.spec.trim()) return toast('规格不能为空')
-			// 产品名称按需求保持唯一；同类不同规格请把规格/属性写入名称，避免客户选择时重名。
-			const dup = db.list(T.PRODUCT).find((p) => p.name === f.name.trim() && p._id !== this.id)
-			if (dup) return toast('产品名称不可重复')
+			// 新增或编辑时改了名称才做重名拦截，旧数据里已有同名产品时仍允许只改价格、规格等信息。
+			const nameChanged = !this.id || name !== String(this.originalName || '').trim()
+			if (nameChanged) {
+				const dup = db.list(T.PRODUCT).find((p) => String(p.name || '').trim() === name && String(p._id || '') !== String(this.id || ''))
+				if (dup) return toast('产品名称不可重复')
+			}
 			const data = {
 				...f,
-				name: f.name.trim(),
+				name,
 				spec: f.spec.trim(),
 				mediumToSmall: Number(f.mediumToSmall) || 0,
 				largeToMedium: Number(f.largeToMedium) || 0,
@@ -238,6 +252,7 @@ export default {
 			}
 			if (this.id) db.update(T.PRODUCT, this.id, data)
 			else db.insert(T.PRODUCT, data)
+			this.originalName = data.name
 			toast('已保存', 'success')
 			setTimeout(() => uni.navigateBack(), 300)
 		},
