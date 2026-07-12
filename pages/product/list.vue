@@ -3,6 +3,10 @@
 		<global-stats />
 		<view class="search-bar">
 			<input class="search-input" v-model="kw" placeholder="搜索产品名称 / 规格 / 品牌" @input="load" />
+			<view class="active-filter-row" v-if="kw">
+				<text class="active-filter">筛选：{{ kw }}</text>
+				<text class="clear-filter" @click="clearFilter">清除</text>
+			</view>
 		</view>
 
 		<view class="empty" v-if="!list.length">暂无产品，点击右下角添加</view>
@@ -12,10 +16,10 @@
 				<view class="col flex1">
 					<text class="t-title">{{ p.name }}</text>
 					<view class="row gap-s mt-s wrap">
-						<text class="tag tag-orange" v-if="p.category">{{ p.category }}</text>
-						<text class="tag tag-gray">{{ p.spec }}</text>
-						<text class="tag tag-blue" v-if="p.brand">{{ p.brand }}</text>
-						<text class="tag tag-gray" v-if="p.attr1">{{ p.attr1 }}</text>
+						<text class="tag tag-orange tag-tap" v-if="p.category" @click.stop="filterTag(p.category)">{{ p.category }}</text>
+						<text class="tag tag-gray tag-tap" @click.stop="filterTag(p.spec)">{{ p.spec }}</text>
+						<text class="tag tag-blue tag-tap" v-if="p.brand" @click.stop="filterTag(p.brand)">{{ p.brand }}</text>
+						<text class="tag tag-gray tag-tap" v-if="p.attr1" @click.stop="filterTag(p.attr1)">{{ p.attr1 }}</text>
 					</view>
 				</view>
 				<view class="col" style="align-items:flex-end;">
@@ -57,11 +61,21 @@ export default {
 		money(n) { return fmtMoney(n) },
 		load() {
 			let list = db.list(T.PRODUCT, null, 'updateTime', true)
-			const kw = this.kw.trim()
+			const kw = this.kw.trim().toLowerCase()
 			if (kw) {
-				list = list.filter((p) => (p.name + p.spec + (p.brand || '') + (p.category || '') + (p.attr1 || '') + (p.attr2 || '')).indexOf(kw) >= 0)
+				list = list.filter((p) => [p.name, p.spec, p.brand, p.category, p.attr1, p.attr2].filter(Boolean).join(' ').toLowerCase().indexOf(kw) >= 0)
 			}
 			this.list = list
+		},
+		filterTag(value) {
+			const text = String(value || '').trim()
+			if (!text) return
+			this.kw = text
+			this.load()
+		},
+		clearFilter() {
+			this.kw = ''
+			this.load()
 		},
 		go(p) { uni.navigateTo({ url: '/pages/product/detail?id=' + p._id }) },
 		add() { uni.navigateTo({ url: '/pages/product/detail' }) }
@@ -72,8 +86,12 @@ export default {
 <style lang="scss" scoped>
 .search-bar { padding: 20rpx 24rpx; background: #fff; }
 .search-input { width: 100%; height: 78rpx; line-height: 78rpx; background: #f3f4f6; border-radius: 999rpx; padding: 0 32rpx; font-size: 28rpx; box-sizing: border-box; }
+.active-filter-row { display: flex; flex-direction: row; align-items: center; gap: 14rpx; margin-top: 14rpx; }
+.active-filter { max-width: 520rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8rpx 16rpx; border-radius: 999rpx; background: #eef2ff; color: #2563eb; font-size: 24rpx; font-weight: 600; }
+.clear-filter { color: #6b7280; font-size: 24rpx; padding: 8rpx 10rpx; }
 .prod { margin: 16rpx 24rpx; }
 .price-row { padding-top: 4rpx; }
+.tag-tap:active { opacity: 0.72; }
 .share-pill { margin: 12rpx 0 0; min-width: 112rpx; height: 54rpx; line-height: 54rpx; padding: 0 18rpx; border-radius: 999rpx; background: #edf3ff; color: #2563eb; font-size: 24rpx; box-shadow: none; }
 .share-pill::after { border: none; }
 </style>
