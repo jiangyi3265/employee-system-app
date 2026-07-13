@@ -17,9 +17,9 @@ function readTable(table) {
 	}
 }
 
-function writeTable(table, list, silent = false) {
+function writeTable(table, list, silent = false, mutation = null) {
 	uni.setStorageSync(PREFIX + table, list)
-	if (!silent && typeof writeListener === 'function') writeListener(table)
+	if (!silent && typeof writeListener === 'function') writeListener(table, mutation)
 }
 
 function genId(prefix) {
@@ -79,7 +79,7 @@ export const db = {
 		// 确保 _id 不被覆盖丢失
 		if (!item._id) item._id = genId(table)
 		list.push(item)
-		writeTable(table, list)
+		writeTable(table, list, false, { upsertIds: [item._id], deletedIds: [] })
 		return item
 	},
 
@@ -94,7 +94,7 @@ export const db = {
 		const idx = list.findIndex((r) => r._id === id)
 		if (idx === -1) return null
 		list[idx] = { ...list[idx], ...patch, _id: id, updateTime: Date.now() }
-		writeTable(table, list)
+		writeTable(table, list, false, { upsertIds: [id], deletedIds: [] })
 		return list[idx]
 	},
 
@@ -102,21 +102,36 @@ export const db = {
 	remove(table, id) {
 		const list = readTable(table)
 		const next = list.filter((r) => r._id !== id)
-		writeTable(table, next)
-		return list.length !== next.length
+		const removed = list.length !== next.length
+		if (removed) writeTable(table, next, false, { upsertIds: [], deletedIds: [id] })
+		return removed
 	},
 
 	/** 按条件删除 */
 	removeWhere(table, filter) {
 		const list = readTable(table)
-		const next = list.filter((r) => !match(r, filter))
-		writeTable(table, next)
-		return list.length - next.length
+		const removedIds = list.filter((r) => match(r, filter)).map((r) => r._id).filter(Boolean)
+		if (!removedIds.length) return 0
+		const removedSet = new Set(removedIds)
+		const next = list.filter((r) => !removedSet.has(r._id))
+		writeTable(table, next, false, { upsertIds: [], deletedIds: removedIds })
+		return removedIds.length
 	},
 
 	/** 覆盖整张表 */
 	setAll(table, list, silent = false) {
-		writeTable(table, list, silent)
+		const next = Array.isArray(list) ? list : []
+		if (silent) {
+			writeTable(table, next, true)
+			return
+		}
+		const previous = readTable(table)
+		const nextIds = new Set(next.map((r) => r && r._id).filter(Boolean))
+		const deletedIds = previous.map((r) => r && r._id).filter((id) => id && !nextIds.has(id))
+		writeTable(table, next, false, {
+			upsertIds: Array.from(nextIds),
+			deletedIds
+		})
 	},
 
 	genId

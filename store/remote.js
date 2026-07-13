@@ -57,10 +57,10 @@ export function pullAll() {
 	return apiRequest('/sqms/sync/pull')
 }
 
-export function pushTables(tables) {
+export function pushTables(tables, deletions = {}) {
 	return apiRequest('/sqms/sync/push', {
 		method: 'POST',
-		data: { tables }
+		data: { tables, deletions }
 	})
 }
 

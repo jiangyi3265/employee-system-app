@@ -19,7 +19,9 @@ function stripWechatFields(table, rows) {
 
 let enabled = false
 let timer = null
-const dirtyTables = new Set()
+let flushPromise = null
+const dirtyUpserts = new Map()
+const dirtyDeletions = new Map()
 
 setWriteListener(markDirty)
 
@@ -67,26 +69,97 @@ export async function syncAllToRemote() {
 	return pushTables(tables)
 }
 
-export function markDirty(table) {
-	if (!enabled || !table) return
-	dirtyTables.add(table)
-	if (timer) clearTimeout(timer)
-	timer = setTimeout(flushDirtyTables, 500)
+function idsFor(map, table) {
+	if (!map.has(table)) map.set(table, new Set())
+	return map.get(table)
 }
 
-export async function flushDirtyTables() {
-	if (!dirtyTables.size) return
-	const tables = {}
-	dirtyTables.forEach((table) => {
-		tables[table] = stripWechatFields(table, db.list(table))
+function hasPendingChanges() {
+	return dirtyUpserts.size > 0 || dirtyDeletions.size > 0
+}
+
+function scheduleFlush() {
+	if (timer) clearTimeout(timer)
+	timer = setTimeout(() => {
+		timer = null
+		flushDirtyTables()
+	}, 500)
+}
+
+export function markDirty(table, mutation = null) {
+	if (!enabled || !table) return
+	const upsertIds = mutation && Array.isArray(mutation.upsertIds)
+		? mutation.upsertIds
+		: db.list(table).map((row) => row && row._id).filter(Boolean)
+	const deletedIds = mutation && Array.isArray(mutation.deletedIds) ? mutation.deletedIds : []
+	const upserts = idsFor(dirtyUpserts, table)
+	const deletions = idsFor(dirtyDeletions, table)
+
+	deletedIds.forEach((id) => {
+		if (!id) return
+		upserts.delete(id)
+		deletions.add(id)
 	})
-	dirtyTables.clear()
+	upsertIds.forEach((id) => {
+		if (!id) return
+		deletions.delete(id)
+		upserts.add(id)
+	})
+	if (!upserts.size) dirtyUpserts.delete(table)
+	if (!deletions.size) dirtyDeletions.delete(table)
+	scheduleFlush()
+}
+
+function takePendingChanges() {
+	const tables = {}
+	const deletions = {}
+	dirtyUpserts.forEach((ids, table) => {
+		const rows = Array.from(ids).map((id) => db.get(table, id)).filter(Boolean)
+		if (rows.length) tables[table] = stripWechatFields(table, rows)
+	})
+	dirtyDeletions.forEach((ids, table) => {
+		if (ids.size) deletions[table] = Array.from(ids)
+	})
+	dirtyUpserts.clear()
+	dirtyDeletions.clear()
+	return { tables, deletions }
+}
+
+function restorePendingChanges(batch) {
+	Object.entries(batch.tables).forEach(([table, rows]) => {
+		const upserts = idsFor(dirtyUpserts, table)
+		const deletions = dirtyDeletions.get(table)
+		rows.forEach((row) => {
+			if (row && row._id && !(deletions && deletions.has(row._id))) upserts.add(row._id)
+		})
+	})
+	Object.entries(batch.deletions).forEach(([table, ids]) => {
+		const deletions = idsFor(dirtyDeletions, table)
+		const upserts = dirtyUpserts.get(table)
+		ids.forEach((id) => {
+			if (id && !(upserts && upserts.has(id))) deletions.add(id)
+		})
+	})
+}
+
+async function flushPendingChanges() {
+	const batch = takePendingChanges()
 	try {
-		await pushTables(tables)
+		await pushTables(batch.tables, batch.deletions)
 	} catch (e) {
-		Object.keys(tables).forEach((table) => dirtyTables.add(table))
+		restorePendingChanges(batch)
 		console.warn('SQMS sync failed:', e && e.message ? e.message : e)
+	} finally {
+		flushPromise = null
+		if (hasPendingChanges()) scheduleFlush()
 	}
+}
+
+export function flushDirtyTables() {
+	if (flushPromise) return flushPromise
+	if (!hasPendingChanges()) return Promise.resolve()
+	flushPromise = flushPendingChanges()
+	return flushPromise
 }
 
 export async function bootstrapRemoteSync() {

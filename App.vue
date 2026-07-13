@@ -1,6 +1,6 @@
 <script>
 	import { ensureSeed } from '@/store/seed.js'
-	import { bootstrapRemoteSync } from '@/store/sync.js'
+	import { bootstrapRemoteSync, flushDirtyTables } from '@/store/sync.js'
 	export default {
 		onLaunch: async function() {
 			// 首次启动写入初始配置（价格/单位），不含演示账号
@@ -8,7 +8,9 @@
 			await bootstrapRemoteSync()
 		},
 		onShow: function() {},
-		onHide: function() {}
+		onHide: function() {
+			flushDirtyTables()
+		}
 	}
 </script>
 
