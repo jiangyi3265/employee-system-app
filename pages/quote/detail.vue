@@ -43,7 +43,9 @@
 					<view class="row gap-s">
 						<text class="t-sub">数量</text>
 						<input class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" />
-						<text class="t-sub">{{ it.unit }}</text>
+						<picker :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it)">
+							<text class="inline-action">{{ it.unit || '个' }}⌄</text>
+						</picker>
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">单价</text>
@@ -131,6 +133,7 @@ import { profitRate, quoteAuditPatch, isQuotableQuoteItem } from '@/utils/pricin
 import { addOrderFollow, addOrderSystemFollow, followActor, orderFollows } from '@/utils/follow.js'
 import { notifyAdmins, notifyPurchaseManagers, sendToUser } from '@/utils/message.js'
 import { PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
+import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -216,6 +219,16 @@ export default {
 		money(n) { return fmtMoney(n) },
 		actor(f) { return followActor(f) },
 		dealLabel(s) { return DEAL_STATUS_LABEL[s] || '未知' },
+		unitOptions(item = {}) {
+			return productUnitOptions(db.get(T.PRODUCT, item.productId) || {})
+		},
+		changeItemUnit(e, item) {
+			const product = db.get(T.PRODUCT, item.productId) || {}
+			const option = this.unitOptions(item)[Number(e.detail.value)]
+			if (!option || option.value === item.unit) return
+			Object.assign(item, convertRecordUnit(item, product, option.value, ['price', 'costPrice', 'customerExpect']))
+			this.saveItem(item)
+		},
 		pickCustomer() {
 			this.customerKw = ''
 			this.loadCustomers()
@@ -255,11 +268,13 @@ export default {
 			const exists = this.items.find((it) => it.productId === p._id)
 			if (exists) { toast('该产品已添加'); return }
 			const price = Number(recPrice) || Number(p.suggestPrice) || 0
-			const audit = this.auditPrice(price, p)
+			const unit = defaultUnit(p)
+			const factor = unitFactor(p, unit)
+			const audit = this.auditPrice(price, p, unit, factor)
 			const data = {
 				orderId: this.id || '',
 				productId: p._id, productName: p.name, spec: p.spec,
-				unit: p.unitSmall || '个', qty: 1, price,
+				unit, unitFactor: factor, qty: 1, price,
 				costPrice: p.costPrice || 0,
 				status: 'pending',
 				employeeId: this.form.employeeId,
@@ -287,8 +302,11 @@ export default {
 			const patch = {
 				qty: Number(it.qty) || 0,
 				price,
+				costPrice: Number(it.costPrice) || 0,
+				unit: it.unit || defaultUnit(product),
+				unitFactor: unitFactor(product, it.unit, it.unitFactor),
 				customerPendingReview: false,
-				...this.auditPrice(price, product)
+				...this.auditPrice(price, product, it.unit, it.unitFactor)
 			}
 			Object.assign(it, patch)
 			if (it._id && !String(it._id).startsWith('tmp_')) {
@@ -385,6 +403,7 @@ export default {
 				return
 			}
 			this.convertedPurchaseItemIds = db.list(T.PURCHASE_REQUEST_ITEM, { sourceQuoteOrderId: this.id })
+				.filter((item) => ![PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(item.status))
 				.map((item) => item.sourceQuoteItemId)
 				.filter(Boolean)
 		},
@@ -404,8 +423,8 @@ export default {
 			this.loadFollows()
 			toast('已添加跟进', 'success')
 		},
-		auditPrice(price, product) {
-			const audit = quoteAuditPatch(price, product)
+		auditPrice(price, product, unit, factor) {
+			const audit = quoteAuditPatch(price, product, unit, factor)
 			if (audit.specialPrice && this.session.role === ROLE.ADMIN) {
 				audit.needsAdminReview = false
 				audit.specialApproved = true
@@ -486,7 +505,9 @@ export default {
 		},
 		createPurchaseRequestFromQuoteItems(rows = this.items, showToast = true, goAfter = false) {
 			const doneRows = rows.filter((it) => {
-				return it.status === 'done' && it._id && !String(it._id).startsWith('tmp_') && !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+				const existing = db.list(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+					.some((row) => ![PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(row.status))
+				return it.status === 'done' && it._id && !String(it._id).startsWith('tmp_') && !existing
 			})
 			if (!doneRows.length) {
 				if (showToast) toast('没有可生成采购申请的成交明细')
@@ -510,6 +531,8 @@ export default {
 			}
 			doneRows.forEach((it) => {
 				const product = db.get(T.PRODUCT, it.productId) || {}
+				const unit = it.unit || defaultUnit(product)
+				const factor = unitFactor(product, unit, it.unitFactor)
 				db.insert(T.PURCHASE_REQUEST_ITEM, {
 					requestId: request._id,
 					customerId: this.form.customerId,
@@ -517,9 +540,11 @@ export default {
 					productId: it.productId,
 					productName: it.productName,
 					spec: it.spec,
+					unit,
+					unitFactor: factor,
 					qty: Number(it.qty) || 1,
-					purchasePrice: Number(product.purchasePrice) || Number(it.costPrice) || 0,
-					salePrice: Number(it.price) || Number(product.suggestPrice) || Number(product.retailPrice) || Number(product.minPrice) || 0,
+					purchasePrice: fromBaseUnitPrice(product.purchasePrice, product, unit, factor) || Number(it.costPrice) || 0,
+					salePrice: Number(it.price) || fromBaseUnitPrice(Number(product.suggestPrice) || Number(product.retailPrice) || Number(product.minPrice), product, unit, factor),
 					supplierId: '',
 					supplierName: '',
 					status: PURCHASE_REQUEST_STATUS.PENDING,

@@ -22,9 +22,12 @@
 
 		<view class="card">
 			<text class="t-title mb-m">价格信息</text>
-			<view class="field"><text class="field-label">建议销售价</text><text class="field-input t-price t-lg">{{ money(product.suggestPrice) }}</text></view>
-			<view class="field"><text class="field-label">零售价</text><text class="field-input">{{ money(product.retailPrice) }}</text></view>
-			<view class="field"><text class="field-label">单位</text><text class="field-input">{{ product.unitSmall || '个' }}</text></view>
+			<view class="field"><text class="field-label">建议销售价</text><text class="field-input t-price t-lg">{{ money(unitPrice('suggestPrice')) }}</text></view>
+			<view class="field"><text class="field-label">零售价</text><text class="field-input">{{ money(unitPrice('retailPrice')) }}</text></view>
+			<view class="field">
+				<text class="field-label">单位</text>
+				<picker class="field-input" :range="unitOptions" range-key="label" @change="pickUnit"><text>{{ selectedUnit }}</text></picker>
+			</view>
 		</view>
 
 		<view style="margin: 30rpx 24rpx;">
@@ -39,9 +42,10 @@ import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtMoney, toast } from '@/utils/format.js'
 import { enableShareMenu, productShare } from '@/utils/share.js'
+import { defaultUnit, fromBaseUnitPrice, productUnitOptions, unitFactor } from '@/utils/units.js'
 
 export default {
-	data() { return { id: '', product: {} } },
+	data() { return { id: '', product: {}, selectedUnit: '个' } },
 	computed: {
 		attrText() {
 			return [this.product.attr1, this.product.attr2].filter(Boolean).join(' / ') || '-'
@@ -53,6 +57,9 @@ export default {
 			const m2s = Number(this.product.mediumToSmall) || 0
 			const l2m = Number(this.product.largeToMedium) || 0
 			return `1${large}=${l2m}${medium}=${l2m * m2s}${small}`
+		},
+		unitOptions() {
+			return productUnitOptions(this.product)
 		}
 	},
 	onLoad(q) {
@@ -60,6 +67,7 @@ export default {
 		if (q && q.id) {
 			this.id = q.id
 			this.product = db.get(T.PRODUCT, q.id) || {}
+			this.selectedUnit = defaultUnit(this.product)
 		}
 	},
 	onShareAppMessage() {
@@ -67,6 +75,11 @@ export default {
 	},
 	methods: {
 		money(n) { return fmtMoney(n) },
+		unitPrice(field) { return fromBaseUnitPrice(this.product[field], this.product, this.selectedUnit) },
+		pickUnit(e) {
+			const option = this.unitOptions[Number(e.detail.value)]
+			if (option) this.selectedUnit = option.value
+		},
 		addToCart() {
 			const cart = uni.getStorageSync('sqms_cart') || []
 			if (cart.find((c) => c._id === this.id)) return toast('已在报价清单中')
@@ -74,10 +87,12 @@ export default {
 				_id: this.id,
 				name: this.product.name,
 				spec: this.product.spec,
-				suggestPrice: this.product.suggestPrice,
-				retailPrice: this.product.retailPrice,
+				suggestPrice: this.unitPrice('suggestPrice'),
+				retailPrice: this.unitPrice('retailPrice'),
+				unit: this.selectedUnit,
+				unitFactor: unitFactor(this.product, this.selectedUnit),
 				qty: 1,
-				customerExpect: Number(this.product.suggestPrice) || '',
+				customerExpect: Number(this.unitPrice('suggestPrice')) || '',
 				supplierQuotes: []
 			})
 			uni.setStorageSync('sqms_cart', cart)

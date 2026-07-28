@@ -149,6 +149,8 @@ export default {
 				spec: it.spec,
 				suggestPrice: it.price,
 				retailPrice: it.price,
+				unit: it.unit,
+				unitFactor: it.unitFactor,
 				qty: Number(it.qty) || 1,
 				customerExpect: Number(it.price) || '',
 				supplierQuotes: []

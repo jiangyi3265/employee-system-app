@@ -44,6 +44,10 @@
 					<view class="row gap-s">
 						<text class="t-sub">数量</text>
 						<input class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" />
+						<text class="t-sub" v-if="supplierView">{{ it.unit || '个' }}</text>
+						<picker v-else :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it)">
+							<text class="inline-action">{{ it.unit || '个' }}</text>
+						</picker>
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">采购价</text>
@@ -123,6 +127,7 @@ import { fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { calcPrices, getSettings, round2 } from '@/utils/pricing.js'
 import { PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
 import { sendToUser } from '@/utils/message.js'
+import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, toBaseUnitPrice, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -231,7 +236,17 @@ export default {
 			const salePrice = Number(item.salePrice) || 0
 			if (salePrice > 0) return salePrice
 			const product = item.productId ? db.get(T.PRODUCT, item.productId) : null
-			return product ? this.defaultSalePrice(product) : 0
+			return product ? fromBaseUnitPrice(this.defaultSalePrice(product), product, item.unit, item.unitFactor) : 0
+		},
+		unitOptions(item = {}) {
+			return productUnitOptions(db.get(T.PRODUCT, item.productId) || {})
+		},
+		changeItemUnit(e, item) {
+			const product = db.get(T.PRODUCT, item.productId) || {}
+			const option = this.unitOptions(item)[Number(e.detail.value)]
+			if (!option || option.value === item.unit) return
+			Object.assign(item, convertRecordUnit(item, product, option.value, ['purchasePrice', 'salePrice', 'freightShare']))
+			this.saveItem(item)
 		},
 		grossMargin(item = {}) {
 			return this.itemSalePrice(item) - (Number(item.purchasePrice) || 0)
@@ -262,10 +277,11 @@ export default {
 			this.items = this.items.map((it) => {
 				const p = db.get(T.PRODUCT, it.productId)
 				if (!p) return it
-				const patch = {}
+				const unit = it.unit || defaultUnit(p)
+				const patch = { unit, unitFactor: unitFactor(p, unit, it.unitFactor) }
 				if (it.productName !== p.name) patch.productName = p.name
 				if (it.spec !== p.spec) patch.spec = p.spec
-				if (!Number(it.salePrice)) patch.salePrice = this.defaultSalePrice(p)
+				if (!Number(it.salePrice)) patch.salePrice = fromBaseUnitPrice(this.defaultSalePrice(p), p, unit, patch.unitFactor)
 				if (Object.keys(patch).length && it._id) {
 					db.update(T.PURCHASE_ITEM, it._id, patch)
 					return { ...it, ...patch }
@@ -349,12 +365,15 @@ export default {
 		selectProduct(p) {
 			const exists = this.items.find((it) => it.productId === p._id)
 			if (exists) { toast('该产品已添加'); return }
+			const unit = defaultUnit(p)
 			const item = db.insert(T.PURCHASE_ITEM, {
 				purchaseOrderId: this.id,
 				productId: p._id, productName: p.name, spec: p.spec,
 				supplierId: this.form.supplierId, supplierName: this.form.supplierName,
 				customerId: this.form.customerId || '',
 				customerName: this.form.customerName || '',
+				unit,
+				unitFactor: unitFactor(p, unit),
 				qty: 1, purchasePrice: p.purchasePrice || 0, salePrice: this.defaultSalePrice(p), freightShare: 0
 			})
 			this.items.push(item)
@@ -367,7 +386,9 @@ export default {
 				qty: Number(it.qty) || 0,
 				purchasePrice: Number(it.purchasePrice) || 0,
 				salePrice: this.itemSalePrice(it),
-				freightShare: Number(it.freightShare) || 0
+				freightShare: Number(it.freightShare) || 0,
+				unit: it.unit || defaultUnit(db.get(T.PRODUCT, it.productId) || {}),
+				unitFactor: unitFactor(db.get(T.PRODUCT, it.productId) || {}, it.unit, it.unitFactor)
 			})
 			this.allocateFreight(true, false)
 			if (!this.preFlow) this.items.forEach((row) => this.syncProductPrice(row, true))
@@ -387,17 +408,20 @@ export default {
 		syncProductPrice(it, silent = false) {
 			const p = db.get(T.PRODUCT, it.productId)
 			if (!p) return
-			const newPurchase = Number(it.purchasePrice) || 0
-			const extraFreight = Number(it.freightShare) || 0
+			const newPurchase = toBaseUnitPrice(it.purchasePrice, p, it.unit, it.unitFactor)
+			const extraFreight = toBaseUnitPrice(it.freightShare, p, it.unit, it.unitFactor)
 			const prices = calcPrices(newPurchase, getSettings(), extraFreight)
-			db.update(T.PRODUCT, p._id, prices)
-			if (!silent) uni.showToast({ title: '已同步更新产品价格', icon: 'none' })
+			db.update(T.PRODUCT, p._id, {
+				purchasePrice: prices.purchasePrice,
+				costPrice: prices.costPrice
+			})
+			if (!silent) uni.showToast({ title: '已同步采购价和成本价', icon: 'none' })
 		},
 		syncAllPrices() {
 			this.allocateFreight(true, false)
 			this.items.forEach((it) => this.syncProductPrice(it, true))
 			this.refreshItemsFromProducts()
-			toast('已同步更新所有产品价格', 'success')
+			toast('已同步所有产品采购价和成本价', 'success')
 		},
 		removeItem(it, i) {
 			if (this.supplierView) return toast('分享页不能删除明细')
@@ -473,7 +497,7 @@ export default {
 					})
 				}
 			})
-			toast('预采购已审核，员工端显示已采购', 'success')
+			toast('预采购已审核', 'success')
 		},
 		stockInPurchase() {
 			if (!this.id) return
@@ -506,11 +530,11 @@ export default {
 			if (this.form.customerName) lines.push(`需求客户：${this.form.customerName}`)
 			if (this.form.sourceEmployeeNames) lines.push(`申请员工：${this.form.sourceEmployeeNames}`)
 			lines.push(`运费：${Number(this.form.freight) || 0}`)
-			lines.push('商品\t规格\t数量\t采购价\t小计')
+			lines.push('商品\t规格\t数量/单位\t采购价\t小计')
 			this.items.forEach((it) => {
 				const qty = Number(it.qty) || 0
 				const price = Number(it.purchasePrice) || 0
-				lines.push(`${it.productName}\t${it.spec || '-'}\t${qty}\t${price.toFixed(2)}\t${(qty * price).toFixed(2)}`)
+				lines.push(`${it.productName}\t${it.spec || '-'}\t${qty}${it.unit || '个'}\t${price.toFixed(2)}/${it.unit || '个'}\t${(qty * price).toFixed(2)}`)
 			})
 			return lines.join('\n')
 		},

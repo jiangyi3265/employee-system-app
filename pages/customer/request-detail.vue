@@ -36,6 +36,10 @@
 						<text class="t-sub" style="font-size:24rpx;">数量</text>
 						<input v-if="canEdit" class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" />
 						<text v-else class="t-bold">{{ it.qty }}</text>
+						<picker v-if="canEdit" :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it)">
+							<text class="inline-action">{{ it.unit || '个' }}</text>
+						</picker>
+						<text v-else class="t-sub">{{ it.unit || '个' }}</text>
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub" style="font-size:24rpx;">预期价</text>
@@ -43,11 +47,11 @@
 						<text v-else class="t-price">{{ money(it.customerExpect) }}</text>
 					</view>
 				</view>
-				<text class="t-sub mt-s" style="font-size:24rpx;">系统建议价：{{ money(it.suggestPrice) }}</text>
+				<text class="t-sub mt-s" style="font-size:24rpx;">系统建议价：{{ money(it.suggestPrice) }}/{{ it.unit || '个' }}</text>
 				<view class="support-box mt-m">
 					<text class="t-sub" style="font-size:24rpx;">其他供货商报价</text>
 					<view class="support-row" v-for="(q, qi) in it.supplierQuotes" :key="qi">
-						<text class="t-sub">{{ q.name || '供货商' }}：{{ money(q.price) }}</text>
+						<text class="t-sub">{{ q.name || '供货商' }}：{{ money(q.price) }}/{{ q.unit || it.unit || '个' }}</text>
 						<text class="t-danger text-action" v-if="canEdit" @click="removeSupplierQuote(it, qi)">删除</text>
 					</view>
 					<view class="row gap-s mt-s" v-if="canEdit">
@@ -77,6 +81,7 @@ import { getSession } from '@/utils/auth.js'
 import { fmtMoney, fmtDate, toast, confirmDialog } from '@/utils/format.js'
 import { notifyEmployees } from '@/utils/message.js'
 import { addFollowLog, addOrderSystemFollow } from '@/utils/follow.js'
+import { convertRecordUnit, defaultUnit, productUnitOptions, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -128,8 +133,12 @@ export default {
 		productName(it) { return it.productName || it.name },
 		requestTitle(r) { return r.requestType === 'modifyQuote' ? '报价单修改申请' : '报价申请' },
 		normalizeItem(it) {
+			const product = db.get(T.PRODUCT, it.productId || it._id) || {}
+			const unit = it.unit || defaultUnit(product)
 			return {
 				...it,
+				unit,
+				unitFactor: unitFactor(product, unit, it.unitFactor),
 				qty: Number(it.qty) || 1,
 				customerExpect: Number(it.customerExpect) || Number(it.suggestPrice) || '',
 				supplierQuotes: Array.isArray(it.supplierQuotes) ? it.supplierQuotes : [],
@@ -137,6 +146,16 @@ export default {
 				_supplierPrice: '',
 				_supplierSuggestions: []
 			}
+		},
+		unitOptions(item = {}) {
+			return productUnitOptions(db.get(T.PRODUCT, this.productId(item)) || {})
+		},
+		changeItemUnit(e, item) {
+			const product = db.get(T.PRODUCT, this.productId(item)) || {}
+			const option = this.unitOptions(item)[Number(e.detail.value)]
+			if (!option || option.value === item.unit) return
+			Object.assign(item, convertRecordUnit(item, product, option.value, ['suggestPrice', 'retailPrice', 'customerExpect']))
+			this.saveItem(item)
 		},
 		load() {
 			if (this.draftMode) {
@@ -175,7 +194,13 @@ export default {
 				this.saveCart()
 				return
 			}
-			db.update(T.REQUEST_ITEM, item._id, { qty, customerExpect })
+			db.update(T.REQUEST_ITEM, item._id, {
+				qty,
+				customerExpect,
+				suggestPrice: Number(item.suggestPrice) || 0,
+				unit: item.unit,
+				unitFactor: item.unitFactor
+			})
 			db.update(T.REQUEST_ORDER, this.id, { totalReference: this.totalReference })
 			toast('已更新申请商品', 'success')
 		},
@@ -184,14 +209,14 @@ export default {
 			const price = Number(item._supplierPrice) || 0
 			if (!name) return toast('请输入供货商名称')
 			if (price <= 0) return toast('请输入有效报价')
-			item.supplierQuotes.push({ name, price })
+			item.supplierQuotes.push({ name, price, unit: item.unit, unitFactor: item.unitFactor })
 			item._supplierName = ''
 			item._supplierPrice = ''
 			item._supplierSuggestions = []
 			if (this.draftMode) {
 				this.saveCart()
 			} else {
-				db.update(T.REQUEST_ITEM, item._id, { supplierQuotes: item.supplierQuotes.map((q) => ({ name: q.name, price: Number(q.price) || 0 })) })
+				db.update(T.REQUEST_ITEM, item._id, { supplierQuotes: item.supplierQuotes.map((q) => ({ ...q, name: q.name, price: Number(q.price) || 0 })) })
 			}
 			toast('已添加供货商报价', 'success')
 		},
@@ -217,7 +242,7 @@ export default {
 			if (this.draftMode) {
 				this.saveCart()
 			} else {
-				db.update(T.REQUEST_ITEM, item._id, { supplierQuotes: item.supplierQuotes.map((q) => ({ name: q.name, price: Number(q.price) || 0 })) })
+				db.update(T.REQUEST_ITEM, item._id, { supplierQuotes: item.supplierQuotes.map((q) => ({ ...q, name: q.name, price: Number(q.price) || 0 })) })
 			}
 			toast('已删除供货商报价', 'success')
 		},
@@ -268,8 +293,8 @@ export default {
 			let text = `${this.session.name || ''}采购物品询价申请单\n\n`
 			text += '序号\t物品名称\t规格\t参考单价\t预期单价\t数量\t供货商报价\n'
 			this.items.forEach((it, i) => {
-				const support = (it.supplierQuotes || []).map((q) => `${q.name}:${Number(q.price).toFixed(2)}`).join('；')
-				text += `${i + 1}\t${it.name}\t${it.spec}\t${Number(it.suggestPrice || 0).toFixed(2)}\t${it.customerExpect || ''}\t${it.qty}\t${support}\n`
+				const support = (it.supplierQuotes || []).map((q) => `${q.name}:${Number(q.price).toFixed(2)}/${q.unit || it.unit || '个'}`).join('；')
+				text += `${i + 1}\t${it.name}\t${it.spec}\t${Number(it.suggestPrice || 0).toFixed(2)}/${it.unit || '个'}\t${it.customerExpect || ''}\t${it.qty}${it.unit || '个'}\t${support}\n`
 			})
 			uni.setClipboardData({ data: text, success: () => toast('申请单已复制', 'success') })
 		},
@@ -303,10 +328,12 @@ export default {
 					productId: it._id,
 					productName: it.name,
 					spec: it.spec,
+					unit: it.unit,
+					unitFactor: it.unitFactor,
 					qty: Number(it.qty) || 1,
 					suggestPrice: Number(it.suggestPrice) || 0,
 					customerExpect: Number(it.customerExpect) || Number(it.suggestPrice) || 0,
-					supplierQuotes: (it.supplierQuotes || []).map((q) => ({ name: q.name, price: Number(q.price) || 0 }))
+					supplierQuotes: (it.supplierQuotes || []).map((q) => ({ ...q, name: q.name, price: Number(q.price) || 0 }))
 				})
 			})
 			if (modifyMode) {
@@ -347,7 +374,10 @@ export default {
 				db.update(T.REQUEST_ITEM, it._id, {
 					qty: Number(it.qty) || 1,
 					customerExpect: Number(it.customerExpect) || Number(it.suggestPrice) || 0,
-					supplierQuotes: (it.supplierQuotes || []).map((q) => ({ name: q.name, price: Number(q.price) || 0 }))
+					suggestPrice: Number(it.suggestPrice) || 0,
+					unit: it.unit,
+					unitFactor: it.unitFactor,
+					supplierQuotes: (it.supplierQuotes || []).map((q) => ({ ...q, name: q.name, price: Number(q.price) || 0 }))
 				})
 			})
 			db.update(T.REQUEST_ORDER, this.request._id, {

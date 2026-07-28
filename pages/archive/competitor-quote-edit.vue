@@ -16,6 +16,12 @@
 				<text class="field-label">客户提供价</text>
 				<input class="field-input" type="digit" v-model="price" placeholder="请输入报价" />
 			</view>
+			<view class="field">
+				<text class="field-label">报价单位</text>
+				<picker class="field-input" :range="unitOptions" range-key="label" @change="pickUnit">
+					<text>{{ unit }}</text>
+				</picker>
+			</view>
 			<text class="t-muted mt-s">这条线索不会自动进入价格查询，只有保存后才写入同行报价库。</text>
 		</view>
 
@@ -64,6 +70,7 @@ import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { toast } from '@/utils/format.js'
+import { convertUnitPrice, defaultUnit, productUnitOptions, unitFactor } from '@/utils/units.js'
 
 function normalize(text) {
 	return String(text || '').trim().toLowerCase()
@@ -83,6 +90,8 @@ export default {
 			customerName: '',
 			providedName: '',
 			price: '',
+			unit: '个',
+			unitFactor: 1,
 			kw: '',
 			competitorRows: [],
 			selectedCompetitorId: '',
@@ -97,6 +106,12 @@ export default {
 	computed: {
 		selectedCompetitor() {
 			return this.selectedCompetitorId ? db.get(T.COMPETITOR, this.selectedCompetitorId) : null
+		},
+		product() {
+			return this.productId ? db.get(T.PRODUCT, this.productId) : null
+		},
+		unitOptions() {
+			return productUnitOptions(this.product || {})
 		}
 	},
 	onLoad(q) {
@@ -109,6 +124,8 @@ export default {
 		}
 		this.session = s
 		this.applyQuery(q || {})
+		if (!this.unit) this.unit = defaultUnit(this.product || {})
+		this.unitFactor = unitFactor(this.product || {}, this.unit, this.unitFactor)
 		this.loadExistingQuoteState()
 		this.kw = this.providedName
 		this.newCompetitor.name = this.providedName
@@ -137,6 +154,8 @@ export default {
 			this.customerName = this.decodeQuery(q.customerName)
 			this.providedName = this.decodeQuery(q.providedName).trim()
 			this.price = Number(this.decodeQuery(q.price)) || ''
+			this.unit = this.decodeQuery(q.unit)
+			this.unitFactor = Number(this.decodeQuery(q.unitFactor)) || 0
 		},
 		loadExistingQuoteState() {
 			if (!this.requestItemId) return
@@ -146,12 +165,16 @@ export default {
 			if (!quote) return
 			this.providedName = String(quote.name || quote.supplierName || this.providedName || '').trim()
 			this.price = Number(quote.price) || this.price
+			this.unit = quote.unit || this.unit || defaultUnit(this.product || {})
+			this.unitFactor = unitFactor(this.product || {}, this.unit, quote.unitFactor || this.unitFactor)
 			this.savedCompQuoteId = quote.savedCompQuoteId || ''
 			if (quote.matchedCompetitorId) this.selectedCompetitorId = quote.matchedCompetitorId
 			if (this.savedCompQuoteId) {
 				const saved = db.get(T.COMP_QUOTE, this.savedCompQuoteId)
 				if (saved) {
 					this.price = Number(saved.price) || this.price
+					this.unit = saved.unit || this.unit
+					this.unitFactor = unitFactor(this.product || {}, this.unit, saved.unitFactor || this.unitFactor)
 					this.selectedCompetitorId = saved.competitorId || this.selectedCompetitorId
 				}
 			}
@@ -179,6 +202,13 @@ export default {
 		},
 		clearSelected() {
 			this.selectedCompetitorId = ''
+		},
+		pickUnit(e) {
+			const option = this.unitOptions[Number(e.detail.value)]
+			if (!option || option.value === this.unit) return
+			if (this.price !== '') this.price = convertUnitPrice(this.price, this.product || {}, this.unit, option.value, this.unitFactor, option.factor)
+			this.unit = option.value
+			this.unitFactor = option.factor
 		},
 		createCompetitor(silent = false) {
 			const name = String(this.newCompetitor.name || this.providedName || '').trim()
@@ -216,6 +246,8 @@ export default {
 				originalProvidedName: oldQuote.originalProvidedName || oldQuote.name || oldQuote.supplierName || '',
 				name: String(this.providedName || '').trim(),
 				price: Number(this.price) || 0,
+				unit: this.unit,
+				unitFactor: this.unitFactor,
 				matchedCompetitorId: competitor._id,
 				matchedCompetitorName: competitor.name,
 				savedCompQuoteId: saved._id,
@@ -238,10 +270,11 @@ export default {
 				competitorId: competitor._id,
 				competitorName: competitor.name,
 				price,
+				unit: this.unit || defaultUnit(product),
+				unitFactor: unitFactor(product, this.unit, this.unitFactor),
 				source: 'manualCustomerSupplierQuote',
 				sourceRequestOrderId: this.requestId,
 				sourceRequestItemId: this.requestItemId,
-				sourceCustomerId: this.customerId,
 				sourceCustomerName: this.customerName,
 				customerProvidedName: String(this.providedName || '').trim(),
 				employeeId: this.session.id,

@@ -18,7 +18,13 @@
 						<text class="t-bold product-link" style="font-size:28rpx;" @click.stop="goProduct(it.productId)">{{ it.productName }}</text>
 						<text class="t-sub">{{ it.spec }}</text>
 					</view>
-					<text class="t-sub">×{{ it.qty }}</text>
+					<view class="row gap-s">
+						<text class="t-sub">×{{ it.qty }}</text>
+						<picker v-if="order.status === 'submitted'" :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it)">
+							<text class="inline-action">{{ it.unit || '个' }}</text>
+						</picker>
+						<text class="t-sub" v-else>{{ it.unit || '个' }}</text>
+					</view>
 				</view>
 				<view class="row-between mt-s" v-if="order.status === 'submitted'">
 					<view class="row gap-s">
@@ -39,7 +45,7 @@
 							<text class="t-muted">客户提供，仅作报价判断</text>
 						</view>
 						<view class="row gap-s">
-							<text class="t-price">{{ money(q.price) }}</text>
+							<text class="t-price">{{ money(q.price) }}/{{ q.unit || it.unit || '个' }}</text>
 							<text class="inline-action" @click="openSupplierQuoteMatch(it, q, qi)">{{ q.savedCompQuoteId ? '重新匹配' : '存入同行报价库' }}</text>
 						</view>
 						<text class="t-muted mt-s" v-if="q.matchedCompetitorName">已匹配：{{ q.matchedCompetitorName }}</text>
@@ -74,6 +80,7 @@ import { sendToUser, notifyAdmins } from '@/utils/message.js'
 import { recommendQuote, recentDealPrices, competitorQuotes, quoteAuditPatch } from '@/utils/pricing.js'
 import { refreshCustomerOwner, refreshOrderDealStatus } from '@/utils/stats.js'
 import { addOrderSystemFollow } from '@/utils/follow.js'
+import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, recordBasePrice, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() { return { id: '', order: {}, items: [], session: {} } },
@@ -102,6 +109,16 @@ export default {
 		statusLabel(s) { return REQUEST_STATUS_LABEL[s] || '未知' },
 		statusTag(s) { return { submitted: 'tag-orange', approved: 'tag-green', rejected: 'tag-red' }[s] || 'tag-gray' },
 		money(n) { return fmtMoney(n) },
+		unitOptions(item = {}) {
+			return productUnitOptions(db.get(T.PRODUCT, item.productId) || {})
+		},
+		changeItemUnit(e, item) {
+			const product = db.get(T.PRODUCT, item.productId) || {}
+			const option = this.unitOptions(item)[Number(e.detail.value)]
+			if (!option || option.value === item.unit) return
+			Object.assign(item, convertRecordUnit(item, product, option.value, ['suggestPrice', 'costPrice', 'minPrice', 'quotePrice', 'customerExpect']))
+			item._rec = this.buildRecommendation(item, product)
+		},
 		goProduct(id) {
 			if (id) uni.navigateTo({ url: '/pages/quote/select?productId=' + id })
 		},
@@ -147,10 +164,12 @@ export default {
 			this.items = db.list(T.REQUEST_ITEM, { requestOrderId: this.id }).map((it) => {
 				const p = db.get(T.PRODUCT, it.productId) || {}
 				const hasQuotePrice = Number(it.quotePrice) > 0
-				it.suggestPrice = p.suggestPrice || 0
-				it.costPrice = p.costPrice || 0
-				it.minPrice = p.minPrice || 0
-				it.quotePrice = hasQuotePrice ? Number(it.quotePrice) : p.suggestPrice || 0
+				it.unit = it.unit || defaultUnit(p)
+				it.unitFactor = unitFactor(p, it.unit, it.unitFactor)
+				it.suggestPrice = fromBaseUnitPrice(p.suggestPrice, p, it.unit, it.unitFactor)
+				it.costPrice = fromBaseUnitPrice(p.costPrice, p, it.unit, it.unitFactor)
+				it.minPrice = fromBaseUnitPrice(p.minPrice, p, it.unit, it.unitFactor)
+				it.quotePrice = hasQuotePrice ? Number(it.quotePrice) : it.suggestPrice || 0
 				it.customerExpect = it.customerExpect || null
 				it.supplierQuotes = Array.isArray(it.supplierQuotes) ? it.supplierQuotes : []
 				it._rec = null
@@ -162,7 +181,11 @@ export default {
 			})
 		},
 		supportMin(it) {
-			const prices = (it.supplierQuotes || []).map((q) => Number(q.price) || 0).filter((p) => p > 0)
+			const product = db.get(T.PRODUCT, it.productId) || {}
+			const prices = (it.supplierQuotes || []).map((q) => {
+				const base = recordBasePrice(q, product)
+				return fromBaseUnitPrice(base, product, it.unit, it.unitFactor)
+			}).filter((p) => p > 0)
 			return prices.length ? Math.min(...prices) : null
 		},
 		buildRecommendation(it, product) {
@@ -170,11 +193,11 @@ export default {
 			const deals = recentDealPrices(it.productId, 1)
 			const comp = competitorQuotes(it.productId, 1)
 			return recommendQuote({
-				suggestPrice: p.suggestPrice,
-				minPrice: p.minPrice,
-				costPrice: p.costPrice,
-				recentDeal: deals.length ? deals[0] : null,
-				competitorMin: comp.length ? comp[0].price : null,
+				suggestPrice: fromBaseUnitPrice(p.suggestPrice, p, it.unit, it.unitFactor),
+				minPrice: fromBaseUnitPrice(p.minPrice, p, it.unit, it.unitFactor),
+				costPrice: fromBaseUnitPrice(p.costPrice, p, it.unit, it.unitFactor),
+				recentDeal: deals.length ? fromBaseUnitPrice(deals[0], p, it.unit, it.unitFactor) : null,
+				competitorMin: comp.length ? fromBaseUnitPrice(comp[0].normalizedPrice, p, it.unit, it.unitFactor) : null,
 				supportMin: this.supportMin(it),
 				customerExpect: Number(it.customerExpect) || null
 			})
@@ -194,14 +217,16 @@ export default {
 				`customerId=${encodeURIComponent(this.order.customerId || '')}`,
 				`customerName=${encodeURIComponent(this.order.customerName || '')}`,
 				`providedName=${encodeURIComponent((quote && (quote.name || quote.supplierName)) || '')}`,
-				`price=${encodeURIComponent(Number(quote && quote.price) || 0)}`
+				`price=${encodeURIComponent(Number(quote && quote.price) || 0)}`,
+				`unit=${encodeURIComponent((quote && quote.unit) || it.unit || '')}`,
+				`unitFactor=${encodeURIComponent((quote && quote.unitFactor) || it.unitFactor || 1)}`
 			]
 			uni.navigateTo({ url: '/pages/archive/competitor-quote-edit?' + params.join('&') })
 		},
 		insertQuoteItem(orderId, it, orderOwner) {
 			const product = db.get(T.PRODUCT, it.productId)
 			const quotePrice = Number(it.quotePrice) || (product && product.suggestPrice) || 0
-			const audit = quoteAuditPatch(quotePrice, product || {})
+			const audit = quoteAuditPatch(quotePrice, product || {}, it.unit, it.unitFactor)
 			const needsAdminReview = audit.specialPrice && !this.isAdmin
 			const specialApproved = audit.specialPrice && this.isAdmin
 			db.insert(T.QUOTE_ITEM, {
@@ -209,10 +234,11 @@ export default {
 				productId: it.productId,
 				productName: it.productName,
 				spec: it.spec,
-				unit: (product && product.unitSmall) || '个',
+				unit: it.unit || defaultUnit(product || {}),
+				unitFactor: unitFactor(product || {}, it.unit, it.unitFactor),
 				qty: it.qty,
 				price: quotePrice,
-				costPrice: (product && product.costPrice) || 0,
+				costPrice: Number(it.costPrice) || fromBaseUnitPrice(product && product.costPrice, product || {}, it.unit, it.unitFactor),
 				customerExpect: Number(it.customerExpect) || 0,
 				status: 'pending',
 				employeeId: orderOwner.employeeId,
@@ -227,6 +253,8 @@ export default {
 			db.update(T.REQUEST_ITEM, it._id, {
 				quotePrice,
 				customerExpect: Number(it.customerExpect) || 0,
+				unit: it.unit || defaultUnit(product || {}),
+				unitFactor: unitFactor(product || {}, it.unit, it.unitFactor),
 				supplierQuotes: it.supplierQuotes || []
 			})
 			return audit.specialPrice ? 1 : 0

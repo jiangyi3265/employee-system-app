@@ -64,7 +64,7 @@
 					<view class="supplier-grid mt-s" v-if="supplierLatest.length">
 						<view class="supplier-chip" :class="{ best: s.isBest }" v-for="s in supplierLatest" :key="s.supplierKey">
 							<text class="supplier-name">{{ s.supplierName }}</text>
-							<text class="supplier-price">{{ money(s.purchasePrice) }}</text>
+							<text class="supplier-price">{{ money(s.purchasePrice) }}/{{ s.unit || p.unitSmall || '个' }}</text>
 							<text class="supplier-trend" :class="trendClass(s)">{{ trendText(s) }}</text>
 						</view>
 					</view>
@@ -75,7 +75,7 @@
 							<text class="t-muted">{{ fmt(row.time) }}</text>
 						</view>
 						<view class="col purchase-price-col">
-							<text class="t-price">{{ money(row.purchasePrice) }}</text>
+							<text class="t-price">{{ money(row.purchasePrice) }}/{{ row.unit || p.unitSmall || '个' }}</text>
 							<text class="t-muted">成本 {{ money(row.costPrice) }}</text>
 							<text :class="trendClass(row)">{{ trendText(row) }}</text>
 						</view>
@@ -90,7 +90,7 @@
 							<text class="t-sub">{{ historyParty(d) }}</text>
 							<text class="t-muted">{{ fmt(d.updateTime || d.createTime) }}</text>
 						</view>
-						<text class="t-price">{{ money(d.price) }}</text>
+						<text class="t-price">{{ money(d.price) }}/{{ d.unit || p.unitSmall || '个' }}</text>
 					</view>
 				</view>
 
@@ -102,7 +102,7 @@
 							<text class="t-sub">{{ historyParty(q) }}</text>
 							<text class="t-muted">{{ fmt(q.updateTime || q.createTime) }}</text>
 						</view>
-						<text class="t-price">{{ money(q.price) }}</text>
+						<text class="t-price">{{ money(q.price) }}/{{ q.unit || p.unitSmall || '个' }}</text>
 					</view>
 				</view>
 
@@ -110,7 +110,7 @@
 				<view class="mt-s" v-if="compQuotes.length">
 					<text class="t-bold" style="font-size:26rpx;">同行报价（最低3条）</text>
 					<view class="row-between" v-for="q in compQuotes" :key="q._id">
-						<text class="t-sub">{{ q.competitorName }}：{{ money(q.price) }}</text>
+						<text class="t-sub">{{ q.competitorName }}：{{ money(q.price) }}/{{ q.unit || p.unitSmall || '个' }}</text>
 						<text class="t-muted">{{ fmt(q.createTime) }}</text>
 					</view>
 				</view>
@@ -136,17 +136,12 @@
 				<view class="mt-s">
 					<text class="t-bold" style="font-size:26rpx;">录入同行报价</text>
 					<view class="quote-entry mt-s">
-						<input class="quote-entry-input comp-name-input" v-model="compNameInput" placeholder="同行名称" @blur="resolveCompetitorName" />
-						<view class="comp-suggest-row" v-if="compNameInput && matchedCompetitors.length">
-							<text class="comp-suggest" v-for="c in matchedCompetitors" :key="c._id" @click="selectCompetitor(c)">{{ c.name }}</text>
-						</view>
-						<view class="new-comp-box" v-if="needNewCompetitorInfo">
-							<text class="t-muted">未找到同行档案，请补基础信息</text>
-							<view class="new-comp-grid mt-s">
-								<input class="quote-entry-input" v-model="compContactInput" placeholder="联系人" />
-								<input class="quote-entry-input" v-model="compPhoneInput" placeholder="电话" />
-							</view>
-						</view>
+						<picker :range="competitors" range-key="name" @change="pickCompetitor">
+							<view class="quote-entry-input" :class="{ 't-muted': !selCompName }">{{ selCompName || '选择同行' }}</view>
+						</picker>
+						<picker :range="compUnitOptions(p)" range-key="label" @change="pickCompUnit($event, p)">
+							<view class="quote-entry-input">{{ compUnit || p.unitSmall || '个' }}</view>
+						</picker>
 						<input class="quote-entry-input" type="digit" v-model="compInputPrice" placeholder="报价" />
 						<button class="btn btn-sm quote-entry-btn" @click="addCompQuote(p)">录入</button>
 					</view>
@@ -170,7 +165,8 @@ import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
 import { fmtMoney, fmtDate, toast } from '@/utils/format.js'
 import { recentDealPrices, competitorQuotes, recommendQuote, isQuotableQuoteItem, calcPrices, round2 } from '@/utils/pricing.js'
-import { ensureCompetitorRecord, filterCompetitors, findCompetitorByName, listCompetitors } from '@/utils/competitor.js'
+import { listCompetitors } from '@/utils/competitor.js'
+import { convertUnitPrice, defaultUnit, productUnitOptions, recordBasePrice, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -179,7 +175,7 @@ export default {
 			categoryFilter: '', brandFilter: '',
 			expanded: '',
 			recentDeals: [], recentQuotes: [], compQuotes: [], purchaseRows: [], supplierLatest: [], rec: null, customerExpect: null,
-			competitors: [], selCompId: '', selCompName: '', compNameInput: '', compContactInput: '', compPhoneInput: '', compInputPrice: ''
+			competitors: [], selCompId: '', selCompName: '', compInputPrice: '', compUnit: '', compUnitFactor: 1
 		}
 	},
 	computed: {
@@ -197,13 +193,6 @@ export default {
 		},
 		brandPickerOptions() {
 			return ['全部品牌'].concat(this.brandOptions)
-		},
-		matchedCompetitors() {
-			return filterCompetitors(this.compNameInput, 5)
-		},
-		needNewCompetitorInfo() {
-			const name = this.compNameInput.trim()
-			return !!name && !findCompetitorByName(name)
 		}
 	},
 	onLoad(q) {
@@ -324,6 +313,8 @@ export default {
 		expand(p) {
 			this.expanded = p._id
 			this.customerExpect = null
+			this.compUnit = defaultUnit(p)
+			this.compUnitFactor = unitFactor(p, this.compUnit)
 			this.recentDeals = db.list(T.QUOTE_ITEM, { productId: p._id, status: 'done' }, 'updateTime', true).filter(isQuotableQuoteItem).slice(0, 3)
 			this.recentQuotes = db.list(T.QUOTE_ITEM, { productId: p._id }, 'updateTime', true)
 				.filter((it) => it.status !== 'done')
@@ -340,11 +331,13 @@ export default {
 		loadPurchaseRefs(productId) {
 			const rows = db.list(T.PURCHASE_ITEM, { productId }, 'createTime', true).map((row) => {
 				const purchasePrice = Number(row.purchasePrice) || 0
+				const normalizedPurchasePrice = recordBasePrice(row, db.get(T.PRODUCT, productId) || {}, 'purchasePrice')
 				const freight = Number(row.freightShare) || 0
 				const supplierName = row.supplierName || this.supplierName(row.supplierId) || '未知供货商'
 				return {
 					...row,
 					purchasePrice,
+					normalizedPurchasePrice,
 					costPrice: calcPrices(purchasePrice, null, freight).costPrice,
 					time: Number(row.updateTime || row.createTime) || 0,
 					supplierName,
@@ -361,13 +354,13 @@ export default {
 				group.sort((a, b) => b.time - a.time)
 				group.forEach((row, index) => {
 					const prev = group[index + 1]
-					row.prevPurchasePrice = prev ? prev.purchasePrice : null
-					row.delta = prev ? round2(row.purchasePrice - prev.purchasePrice) : null
+					row.prevPurchasePrice = prev ? prev.normalizedPurchasePrice : null
+					row.delta = prev ? round2(row.normalizedPurchasePrice - prev.normalizedPurchasePrice) : null
 				})
 			})
 			this.purchaseRows = rows.slice(0, 12)
 			this.supplierLatest = Object.keys(groups).map((key) => groups[key][0])
-				.sort((a, b) => a.purchasePrice - b.purchasePrice)
+				.sort((a, b) => a.normalizedPurchasePrice - b.normalizedPurchasePrice)
 				.slice(0, 6)
 				.map((row, index) => ({ ...row, isBest: index === 0 }))
 		},
@@ -387,7 +380,7 @@ export default {
 				minPrice: p.minPrice,
 				costPrice: p.costPrice,
 				recentDeal: deal,
-				competitorMin: null,
+				competitorMin: this.compQuotes.length ? this.compQuotes[0].normalizedPrice : null,
 				customerExpect: this.customerExpect || null
 			})
 		},
@@ -396,7 +389,7 @@ export default {
 			if (customerId) {
 				const customerDeal = db.list(T.QUOTE_ITEM, { productId, customerId, status: 'done' }, 'updateTime', true)
 					.filter(isQuotableQuoteItem)
-				if (customerDeal.length) return Number(customerDeal[0].price) || null
+				if (customerDeal.length) return recordBasePrice(customerDeal[0], db.get(T.PRODUCT, productId) || {})
 			}
 			const deals = recentDealPrices(productId, 1)
 			return deals.length ? deals[0] : null
@@ -412,47 +405,40 @@ export default {
 			if (!c) return
 			this.selCompId = c._id
 			this.selCompName = c.name
-			this.compNameInput = c.name
-			this.compContactInput = c.contact || ''
-			this.compPhoneInput = c.phone || ''
 		},
-		resolveCompetitorName() {
-			const c = findCompetitorByName(this.compNameInput)
-			if (c) this.selectCompetitor(c)
-			else {
-				this.selCompId = ''
-				this.selCompName = this.compNameInput.trim()
+		compUnitOptions(product) {
+			return productUnitOptions(product)
+		},
+		pickCompUnit(e, product) {
+			const option = this.compUnitOptions(product)[Number(e.detail.value)]
+			if (!option || option.value === this.compUnit) return
+			if (this.compInputPrice !== '') {
+				this.compInputPrice = convertUnitPrice(this.compInputPrice, product, this.compUnit, option.value, this.compUnitFactor, option.factor)
 			}
+			this.compUnit = option.value
+			this.compUnitFactor = option.factor
 		},
 		resetCompQuoteForm() {
 			this.selCompId = ''
 			this.selCompName = ''
-			this.compNameInput = ''
-			this.compContactInput = ''
-			this.compPhoneInput = ''
 			this.compInputPrice = ''
 		},
 		addCompQuote(p) {
-			const result = ensureCompetitorRecord({
-				name: this.compNameInput || this.selCompName,
-				contact: this.compContactInput,
-				phone: this.compPhoneInput
-			})
-			if (!result.ok) return toast(result.msg)
-			const competitor = result.record
+			if (!this.selCompId) return toast('请选择同行')
+			const competitor = db.get(T.COMPETITOR, this.selCompId)
+			if (!competitor) return toast('同行档案不存在，请重新选择')
 			if (!this.compInputPrice) return toast('请输入报价')
-			const customerId = this.contextCustomerId()
 			const customerName = this.contextCustomerName()
 			db.insert(T.COMP_QUOTE, {
 				productId: p._id,
 				competitorId: competitor._id,
 				competitorName: competitor.name,
 				price: Number(this.compInputPrice),
-				sourceCustomerId: customerId,
+				unit: this.compUnit || defaultUnit(p),
+				unitFactor: this.compUnitFactor || unitFactor(p, this.compUnit),
 				sourceCustomerName: customerName
 			})
-			this.refreshCompetitors()
-			toast(result.created ? '已新增同行并录入报价' : '已录入', 'success')
+			toast('已录入', 'success')
 			this.resetCompQuoteForm()
 			this.compQuotes = competitorQuotes(p._id)
 			this.calcRecommend(p)

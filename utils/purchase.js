@@ -5,14 +5,18 @@ export const PURCHASE_REQUEST_STATUS = {
 	PENDING: 'pending',
 	PRE: 'pre',
 	PURCHASED: 'purchased',
-	CONVERTED: 'converted'
+	CONVERTED: 'converted',
+	CLOSED: 'closed',
+	WITHDRAWN: 'withdrawn'
 }
 
 export const PURCHASE_REQUEST_STATUS_LABEL = {
 	pending: '待采购处理',
 	pre: '已生成预采购',
 	purchased: '已采购',
-	converted: '已入库'
+	converted: '已入库',
+	closed: '已结束',
+	withdrawn: '已撤回'
 }
 
 export function isPurchaseManager(session) {
@@ -38,6 +42,8 @@ export function requestStatusLabel(status) {
 export function refreshPurchaseRequestStatus(requestId) {
 	const items = db.list(T.PURCHASE_REQUEST_ITEM, { requestId })
 	if (!items.length) return null
+	const current = db.get(T.PURCHASE_REQUEST, requestId)
+	if (current && [PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(current.status)) return current
 	const converted = items.filter((it) => it.status === PURCHASE_REQUEST_STATUS.CONVERTED).length
 	const purchased = items.filter((it) => it.status === PURCHASE_REQUEST_STATUS.PURCHASED).length
 	const pre = items.filter((it) => it.status === PURCHASE_REQUEST_STATUS.PRE).length

@@ -32,9 +32,12 @@
 		<view class="list-card order" v-for="o in list" :key="o._id" @click="go(o._id)">
 			<view class="row-between">
 				<text class="t-title" style="font-size:30rpx;">{{ o.supplierName }}</text>
-				<text class="tag" :class="purchaseTag(o.status)">{{ purchaseStatus(o.status) }}</text>
+				<view class="row gap-s">
+					<text class="tag" :class="purchaseTag(o.status)">{{ purchaseStatus(o.status) }}</text>
+					<text class="t-danger" v-if="managerMode && o.status === 'pre'" @click.stop="removePreOrder(o)">删除</text>
+				</view>
 			</view>
-			<text class="meta-line">采购员工：{{ o.employeeName || '-' }} · 需求客户：{{ o.customerName || '-' }} · 明细 {{ itemCount(o._id) }} 项</text>
+			<text class="meta-line">采购员工：{{ o.employeeName || '-' }} · 明细 {{ itemCount(o._id) }} 项</text>
 			<view class="row-between mt-s">
 				<text class="t-sub">{{ fmt(o.createTime) }} · 运费：{{ money(o.freight || 0) }}</text>
 				<text class="inline-action">查看详情</text>
@@ -48,9 +51,9 @@
 <script>
 import { db } from '@/store/db.js'
 import { T } from '@/store/schema.js'
-import { fmtDate, fmtMoney } from '@/utils/format.js'
+import { fmtDate, fmtMoney, confirmDialog, toast } from '@/utils/format.js'
 import { getSession } from '@/utils/auth.js'
-import { isPurchaseManager } from '@/utils/purchase.js'
+import { isPurchaseManager, PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
 
 export default {
 	data() { return { list: [], all: [], kw: '', suppliers: [], supplierId: '', supplierName: '', startDate: '', endDate: '', session: {}, managerMode: false, statusFilter: '' } },
@@ -133,6 +136,26 @@ export default {
 			this.list = list
 		},
 		go(id) { uni.navigateTo({ url: '/pages/purchase/detail?id=' + id }) },
+		async removePreOrder(order) {
+			if (!this.managerMode || !order || order.status !== 'pre') return
+			if (!(await confirmDialog('确定删除该预采购单？关联申请明细将恢复为待处理。'))) return
+			const items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: order._id })
+			items.forEach((item) => {
+				if (item.sourcePurchaseRequestItemId) {
+					db.update(T.PURCHASE_REQUEST_ITEM, item.sourcePurchaseRequestItemId, {
+						status: PURCHASE_REQUEST_STATUS.PENDING,
+						prePurchaseOrderId: '',
+						purchaseOrderId: ''
+					})
+				}
+			})
+			const requestIds = [...new Set(items.map((item) => item.sourcePurchaseRequestId).filter(Boolean))]
+			db.removeWhere(T.PURCHASE_ITEM, { purchaseOrderId: order._id })
+			db.remove(T.PURCHASE_ORDER, order._id)
+			requestIds.forEach((id) => refreshPurchaseRequestStatus(id))
+			this.load()
+			toast('预采购单已删除', 'success')
+		},
 		add() { uni.navigateTo({ url: '/pages/purchase/detail' }) }
 	}
 }

@@ -6,6 +6,7 @@
 
 import { db } from '@/store/db.js'
 import { T, DEFAULT_SETTINGS } from '@/store/schema.js'
+import { fromBaseUnitPrice, recordBasePrice } from '@/utils/units.js'
 
 /** 读取全局价格参数（带默认值兜底） */
 export function getSettings() {
@@ -56,8 +57,8 @@ export function profitRate(price, cost) {
 	return round2(((price - cost) / cost) * 100)
 }
 
-export function quoteAuditPatch(price, product = {}) {
-	const minPrice = Number(product.minPrice) || 0
+export function quoteAuditPatch(price, product = {}, unit, unitFactor) {
+	const minPrice = fromBaseUnitPrice(product.minPrice, product, unit, unitFactor)
 	const quotePrice = Number(price) || 0
 	const specialPrice = minPrice > 0 && quotePrice < minPrice
 	return {
@@ -83,15 +84,17 @@ export function isQuotableQuoteItem(item) {
  * 从产品报价表中找该产品已成交记录，按时间倒序
  */
 export function recentDealPrices(productId, n = 3) {
+	const product = db.get(T.PRODUCT, productId) || {}
 	const items = db.list(T.QUOTE_ITEM, { productId, status: 'done' }, 'updateTime', true).filter(isQuotableQuoteItem)
-	return items.slice(0, n).map((it) => it.price)
+	return items.slice(0, n).map((it) => recordBasePrice(it, product))
 }
 
 export function recentQuotePrices(productId, n = 3) {
+	const product = db.get(T.PRODUCT, productId) || {}
 	const items = db.list(T.QUOTE_ITEM, { productId }, 'updateTime', true)
 		.filter((it) => it.status !== 'done')
 		.filter(isQuotableQuoteItem)
-	return items.slice(0, n).map((it) => it.price)
+	return items.slice(0, n).map((it) => recordBasePrice(it, product))
 }
 
 /**
@@ -99,13 +102,15 @@ export function recentQuotePrices(productId, n = 3) {
  */
 export function competitorQuotes(productId, n = 3) {
 	const all = db.list(T.COMP_QUOTE, { productId })
+	const product = db.get(T.PRODUCT, productId) || {}
 	// 单个同行只保留最低一条
 	const byComp = {}
 	all.forEach((q) => {
 		const key = q.competitorId || q.supplierId || q._id
-		if (!byComp[key] || q.price < byComp[key].price) byComp[key] = q
+		const normalizedPrice = recordBasePrice(q, product)
+		if (!byComp[key] || normalizedPrice < byComp[key].normalizedPrice) byComp[key] = { ...q, normalizedPrice }
 	})
-	const list = Object.values(byComp).sort((a, b) => a.price - b.price)
+	const list = Object.values(byComp).sort((a, b) => a.normalizedPrice - b.normalizedPrice)
 	return list.slice(0, n)
 }
 

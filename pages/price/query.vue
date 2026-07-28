@@ -19,6 +19,12 @@
 					<text :class="customerId ? '' : 't-muted'">{{ customer ? customer.name : '全部客户' }}</text>
 				</view>
 			</view>
+			<view class="field" v-if="product">
+				<text class="field-label">计价单位</text>
+				<picker class="field-input picker-text" :range="unitOptions" range-key="label" @change="selectUnit">
+					<text>{{ selectedUnit }}</text>
+				</picker>
+			</view>
 			<text class="t-muted mt-s">不选择客户时，展示该商品每个客户最近一条报价/成交记录。</text>
 		</view>
 
@@ -28,13 +34,13 @@
 					<text class="t-title" style="font-size:30rpx;">{{ product.name }}</text>
 					<text class="t-sub mt-s">{{ product.spec }} · {{ product.brand || '-' }}</text>
 				</view>
-				<text class="t-price t-lg">{{ money(product.suggestPrice) }}</text>
+				<text class="t-price t-lg">{{ money(productPrice('suggestPrice')) }}/{{ selectedUnit }}</text>
 			</view>
 			<view class="price-grid mt-m">
-				<view><text class="t-muted">成本价</text><text class="price-num">{{ money(product.costPrice) }}</text></view>
-				<view><text class="t-muted">最低价</text><text class="price-num">{{ money(product.minPrice) }}</text></view>
-				<view><text class="t-muted">建议价</text><text class="price-num">{{ money(product.suggestPrice) }}</text></view>
-				<view><text class="t-muted">零售价</text><text class="price-num">{{ money(product.retailPrice) }}</text></view>
+				<view><text class="t-muted">成本价</text><text class="price-num">{{ money(productPrice('costPrice')) }}</text></view>
+				<view><text class="t-muted">最低价</text><text class="price-num">{{ money(productPrice('minPrice')) }}</text></view>
+				<view><text class="t-muted">建议价</text><text class="price-num">{{ money(productPrice('suggestPrice')) }}</text></view>
+				<view><text class="t-muted">零售价</text><text class="price-num">{{ money(productPrice('retailPrice')) }}</text></view>
 			</view>
 		</view>
 
@@ -53,14 +59,14 @@
 					@click="toggleCompetitor(row)"
 				>
 					<text class="chip-name">{{ row.name }}</text>
-					<text class="chip-price">{{ money(row.price) }}</text>
+					<text class="chip-price">{{ money(row.price) }}/{{ row.unit || product.unitSmall || '个' }}</text>
 					<text class="chip-sub" v-if="row.customerName">{{ row.customerName }}</text>
 					<text class="chip-date">{{ fmt(row.time) }}</text>
 				</view>
 			</view>
 			<view class="summary-box mt-m" v-if="selectedCompetitorRows.length">
 				<text class="t-muted">已选 {{ selectedCompetitorRows.length }} 家，三方最低参考</text>
-				<text class="t-price t-lg">{{ money(selectedCompetitorMin) }}</text>
+				<text class="t-price t-lg">{{ money(selectedCompetitorMin) }}/{{ selectedUnit }}</text>
 			</view>
 			<text class="t-muted mt-s" v-else>勾选客户实际询价的同行后，系统只用已选范围计算最低参考价。</text>
 		</view>
@@ -68,7 +74,7 @@
 		<view class="card" v-if="recommendation">
 			<view class="row-between">
 				<text class="t-title">最终报价参考</text>
-				<text class="t-price t-lg">{{ money(recommendation.price) }}</text>
+				<text class="t-price t-lg">{{ money(recommendation.price) }}/{{ selectedUnit }}</text>
 			</view>
 			<text class="t-sub mt-s">依据：{{ recommendation.basis }} · 利润率 {{ recommendation.profitRate }}%</text>
 			<text class="t-sub mt-s">历史成交优先：{{ historyBasisText }}</text>
@@ -84,7 +90,7 @@
 					<text class="t-bold" style="font-size:27rpx;">{{ row.name }}</text>
 					<text class="t-muted mt-s">{{ row.sub || '-' }} · {{ fmt(row.time) }}</text>
 				</view>
-				<text class="t-price">{{ money(row.price) }}</text>
+				<text class="t-price">{{ money(row.price) }}/{{ row.unit || product.unitSmall || '个' }}</text>
 			</view>
 			<view class="empty-lite" v-if="!dealDisplayRows.length">暂无成交记录</view>
 		</view>
@@ -96,7 +102,7 @@
 					<text class="t-bold" style="font-size:27rpx;">{{ row.name }}</text>
 					<text class="t-muted mt-s">{{ row.sub || '-' }} · {{ fmt(row.time) }}</text>
 				</view>
-				<text class="t-price">{{ money(row.price) }}</text>
+				<text class="t-price">{{ money(row.price) }}/{{ row.unit || product.unitSmall || '个' }}</text>
 			</view>
 			<view class="empty-lite" v-if="!quoteDisplayRows.length">暂无报价记录</view>
 		</view>
@@ -108,7 +114,7 @@
 					<text class="t-bold" style="font-size:27rpx;">{{ row.name }}</text>
 					<text class="t-muted mt-s">{{ row.sub || '-' }} · {{ fmt(row.time) }}</text>
 				</view>
-				<text class="t-price">{{ money(row.price) }}</text>
+				<text class="t-price">{{ money(row.price) }}/{{ row.unit || product.unitSmall || '个' }}</text>
 			</view>
 			<view class="empty-lite" v-if="!competitorRows.length">暂无同行报价</view>
 		</view>
@@ -121,7 +127,7 @@
 					<text class="t-muted mt-s">数量 {{ row.qty || '-' }} · {{ fmt(row.time) }}</text>
 				</view>
 				<view class="col price-col">
-					<text class="t-price">{{ money(row.purchasePrice) }}</text>
+					<text class="t-price">{{ money(row.purchasePrice) }}/{{ row.unit || product.unitSmall || '个' }}</text>
 					<text class="t-muted mt-s">成本 {{ money(row.costPrice) }}</text>
 				</view>
 			</view>
@@ -170,6 +176,7 @@ import { T, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney, toast } from '@/utils/format.js'
 import { calcPrices, isQuotableQuoteItem, recommendQuote } from '@/utils/pricing.js'
+import { defaultUnit, fromBaseUnitPrice, productUnitOptions, recordBasePrice } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -185,7 +192,8 @@ export default {
 			customerTotal: 0,
 			showProductPicker: false,
 			showCustomerPicker: false,
-			selectedCompetitorKeys: []
+			selectedCompetitorKeys: [],
+			selectedUnit: '个'
 		}
 	},
 	computed: {
@@ -200,6 +208,9 @@ export default {
 		},
 		customer() {
 			return this.customerId ? db.get(T.CUSTOMER, this.customerId) : null
+		},
+		unitOptions() {
+			return productUnitOptions(this.product || {})
 		},
 		dealRows() {
 			return this.latestQuoteRows('done', this.customerId)
@@ -229,17 +240,9 @@ export default {
 		},
 		competitorRows() {
 			if (!this.productId) return []
-			let rows = db.list(T.COMP_QUOTE, { productId: this.productId })
+			const rows = db.list(T.COMP_QUOTE, { productId: this.productId })
 				.map((row) => this.enrichCompetitor(row))
-			if (this.customerId) {
-				rows = rows.filter((row) => !row.customerId || row.customerId === this.customerId)
-			}
-			rows = rows.sort((a, b) => {
-				const ap = this.customerId && a.customerId === this.customerId ? 1 : 0
-				const bp = this.customerId && b.customerId === this.customerId ? 1 : 0
-				if (ap !== bp) return bp - ap
-				return b.time - a.time
-			})
+				.sort((a, b) => b.time - a.time)
 			return this.latestBy(rows, (row) => row.key)
 		},
 		purchaseRows() {
@@ -264,7 +267,7 @@ export default {
 		},
 		selectedCompetitorMin() {
 			if (!this.selectedCompetitorRows.length) return null
-			const prices = this.selectedCompetitorRows.map((row) => Number(row.price) || 0).filter((price) => price > 0)
+			const prices = this.selectedCompetitorRows.map((row) => Number(row.comparisonPrice) || 0).filter((price) => price > 0)
 			return prices.length ? Math.min(...prices) : null
 		},
 		historyDealRow() {
@@ -274,15 +277,15 @@ export default {
 		historyBasisText() {
 			if (!this.historyDealRow) return '暂无历史成交价'
 			const prefix = this.customerId && this.dealRows.length ? '该客户' : '全客户'
-			return `${prefix} ${this.historyDealRow.name} ${this.money(this.historyDealRow.price)}`
+			return `${prefix} ${this.historyDealRow.name} ${this.money(this.historyDealRow.price)}/${this.historyDealRow.unit || this.product.unitSmall || '个'}`
 		},
 		recommendation() {
 			if (!this.product) return null
 			return recommendQuote({
-				suggestPrice: this.product.suggestPrice,
-				minPrice: this.product.minPrice,
-				costPrice: this.product.costPrice,
-				recentDeal: this.historyDealRow ? Number(this.historyDealRow.price) : null,
+				suggestPrice: this.productPrice('suggestPrice'),
+				minPrice: this.productPrice('minPrice'),
+				costPrice: this.productPrice('costPrice'),
+				recentDeal: this.historyDealRow ? Number(this.historyDealRow.comparisonPrice) : null,
 				competitorMin: this.selectedCompetitorMin
 			})
 		}
@@ -298,10 +301,18 @@ export default {
 		this.session = s
 		this.productId = (q && q.productId) || ''
 		this.customerId = (q && q.customerId) || ''
+		this.selectedUnit = defaultUnit(this.product || {})
 	},
 	methods: {
 		money(n) { return fmtMoney(n) },
 		fmt(t) { return fmtDate(t) },
+		productPrice(field) {
+			return fromBaseUnitPrice(this.product ? this.product[field] : 0, this.product || {}, this.selectedUnit)
+		},
+		selectUnit(e) {
+			const option = this.unitOptions[Number(e.detail.value)]
+			if (option) this.selectedUnit = option.value
+		},
 		openProductPicker() {
 			this.loadProducts()
 			this.showProductPicker = true
@@ -327,6 +338,7 @@ export default {
 		},
 		selectProduct(item) {
 			this.productId = item ? item._id : ''
+			this.selectedUnit = defaultUnit(item || {})
 			this.selectedCompetitorKeys = []
 			this.showProductPicker = false
 		},
@@ -364,6 +376,7 @@ export default {
 			this.productKw = ''
 			this.customerKw = ''
 			this.selectedCompetitorKeys = []
+			this.selectedUnit = '个'
 		},
 		clearCompetitors() {
 			this.selectedCompetitorKeys = []
@@ -404,6 +417,7 @@ export default {
 				customerId: row.customerId,
 				sub: employee,
 				price: Number(row.price) || 0,
+				comparisonPrice: fromBaseUnitPrice(recordBasePrice(row, this.product || {}), this.product || {}, this.selectedUnit),
 				time
 			}
 		},
@@ -421,6 +435,7 @@ export default {
 				customerName,
 				sub: [sourceLabel, customerName].filter(Boolean).join(' · '),
 				price: Number(row.price) || 0,
+				comparisonPrice: fromBaseUnitPrice(recordBasePrice(row, this.product || {}), this.product || {}, this.selectedUnit),
 				time: Number(row.createTime || row.updateTime) || 0
 			}
 		},
@@ -430,13 +445,13 @@ export default {
 		},
 		copyReference() {
 			if (!this.recommendation || !this.product) return
-			const names = this.selectedCompetitorRows.map((row) => `${row.name}:${this.money(row.price)}`).join('；') || '未选择'
+			const names = this.selectedCompetitorRows.map((row) => `${row.name}:${this.money(row.price)}/${row.unit || this.product.unitSmall || '个'}`).join('；') || '未选择'
 			const text = [
 				`商品：${this.product.name}`,
 				`客户：${this.customer ? this.customer.name : '全部客户'}`,
 				`三方询价：${names}`,
 				`历史成交：${this.historyBasisText}`,
-				`建议报价：${this.money(this.recommendation.price)}`,
+				`建议报价：${this.money(this.recommendation.price)}/${this.selectedUnit}`,
 				`依据：${this.recommendation.basis}`,
 				this.recommendation.warning ? `提示：${this.recommendation.warning}` : ''
 			].filter(Boolean).join('\n')

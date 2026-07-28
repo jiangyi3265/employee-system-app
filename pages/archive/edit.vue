@@ -221,24 +221,19 @@ export default {
 			)
 			const suggestions = db.list(T.SUGGESTION, { customerId })
 			const suggestionIds = idSet(suggestions)
-			const competitorQuotes = db.list(T.COMP_QUOTE).filter((row) =>
-				sameId(row.sourceCustomerId, customerId) || sameId(row.customerId, customerId)
-			)
-			const competitorQuoteIds = idSet(competitorQuotes)
 			const relatedIds = new Set([
 				...quoteOrderIds,
 				...quoteItemIds,
 				...requestOrderIds,
 				...requestItemIds,
-				...suggestionIds,
-				...competitorQuoteIds
+				...suggestionIds
 			])
 			const messages = db.list(T.MESSAGE).filter((row) =>
 				sameId(row.fromId, customerId) ||
 				sameId(row.toId, customerId) ||
 				setHas(relatedIds, row.refId)
 			)
-			return { quoteOrders, quoteItems, requestOrders, requestItems, follows, suggestions, competitorQuotes, messages }
+			return { quoteOrders, quoteItems, requestOrders, requestItems, follows, suggestions, messages }
 		},
 		competitorCascadePlan() {
 			const competitorId = this.id
@@ -257,7 +252,6 @@ export default {
 		applyCustomerCascade(plan) {
 			this.removeByRows(T.MESSAGE, plan.messages)
 			this.removeByRows(T.FOLLOW, plan.follows)
-			this.removeByRows(T.COMP_QUOTE, plan.competitorQuotes)
 			this.removeByRows(T.QUOTE_ITEM, plan.quoteItems)
 			this.removeByRows(T.QUOTE_ORDER, plan.quoteOrders)
 			this.removeByRows(T.REQUEST_ITEM, plan.requestItems)
@@ -276,7 +270,6 @@ export default {
 					countLabel('申请明细', plan.requestItems),
 					countLabel('跟进', plan.follows),
 					countLabel('建议/投诉', plan.suggestions),
-					countLabel('同行报价来源', plan.competitorQuotes),
 					countLabel('站内消息', plan.messages)
 				].filter(Boolean)
 				const detail = labels.length ? `将同步删除：${labels.join('、')}。` : '未发现关联业务数据。'

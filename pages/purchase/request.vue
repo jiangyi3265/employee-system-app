@@ -3,7 +3,7 @@
 		<global-stats />
 		<view class="sub-hero">
 			<text class="sub-hero-title">采购申请</text>
-			<text class="sub-hero-desc">{{ managerMode ? '查看今日所有员工采购需求，按客户和供货商拆分预采购单' : '提交自己的采购需求，采购员和管理员会统一处理' }}</text>
+			<text class="sub-hero-desc">{{ managerMode ? '查看今日所有员工采购需求，按供货商合并预采购单' : '提交自己的采购需求，采购员和管理员会统一处理' }}</text>
 			<view class="metric-row">
 				<view class="metric-pill"><text class="metric-num">{{ requestRows.length }}</text><text class="metric-label">{{ managerMode ? '今日申请' : '我的申请' }}</text></view>
 				<view class="metric-pill"><text class="metric-num">{{ pendingItemCount }}</text><text class="metric-label">待处理明细</text></view>
@@ -59,6 +59,12 @@
 				</view>
 				<view class="request-grid mt-s">
 					<view class="mini-field"><text class="mini-label">数量</text><input class="mini-ipt" type="digit" v-model="it.qty" /></view>
+					<view class="mini-field">
+						<text class="mini-label">单位</text>
+						<picker class="mini-ipt" :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it)">
+							<text>{{ it.unit || '个' }}</text>
+						</picker>
+					</view>
 					<view class="mini-field"><text class="mini-label">采购价</text><input class="mini-ipt" type="digit" v-model="it.purchasePrice" /></view>
 					<view class="mini-field"><text class="mini-label">销售价</text><input class="mini-ipt" type="digit" v-model="it.salePrice" /></view>
 				</view>
@@ -90,11 +96,14 @@
 				<view class="summary-item" v-for="it in requestItems(r._id)" :key="it._id">
 					<view class="col flex1">
 						<text class="t-sub t-bold">{{ it.productName }}</text>
-						<text class="t-muted mt-s">{{ it.spec || '-' }} · 数量 {{ it.qty }} · 采购价 {{ money(it.purchasePrice) }} · 销售价 {{ money(itemSalePrice(it)) }}</text>
+						<text class="t-muted mt-s">{{ it.spec || '-' }} · 数量 {{ it.qty }}{{ it.unit || '个' }} · 采购价 {{ money(it.purchasePrice) }}/{{ it.unit || '个' }} · 销售价 {{ money(itemSalePrice(it)) }}/{{ it.unit || '个' }}</text>
 						<text class="t-muted mt-s">供货商：{{ it.supplierName || '未关联' }}</text>
 					</view>
-					<view class="col item-actions" v-if="managerMode && it.status !== 'converted'">
+					<view class="col item-actions" v-if="managerMode && it.status === 'pending'">
 						<text class="inline-action" @click="openSupplierPicker('savedItem', it)">供货商</text>
+						<picker :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it, true)">
+							<text class="inline-action">{{ it.unit || '个' }}</text>
+						</picker>
 						<input class="inline-price" type="digit" v-model="it.qty" @blur="saveRequestItemInline(it)" />
 						<input class="inline-price" type="digit" v-model="it.purchasePrice" @blur="saveRequestItemInline(it)" />
 						<input class="inline-price" type="digit" v-model="it.salePrice" @blur="saveRequestItemInline(it)" />
@@ -103,9 +112,12 @@
 				</view>
 				<view class="row-between mt-s">
 					<text class="t-muted">{{ requestItems(r._id).length }} 项明细</text>
-					<view class="row gap-s" v-if="canEditRequest(r)">
-						<text class="inline-action" @click="editRequest(r)">编辑申请</text>
-						<text class="inline-action" v-if="managerMode" @click="addProductForRequest(r)">添加商品</text>
+					<view class="row gap-s">
+						<text class="inline-action" v-if="canEditRequest(r)" @click="editRequest(r)">编辑申请</text>
+						<text class="inline-action" v-if="managerMode && canEditRequest(r)" @click="addProductForRequest(r)">添加商品</text>
+						<text class="inline-action" v-if="canWithdrawRequest(r)" @click="withdrawRequest(r)">撤回</text>
+						<text class="t-danger text-action" v-if="canDeleteRequest(r)" @click="deleteRequest(r)">删除</text>
+						<text class="t-danger text-action" v-if="managerMode && r.status === 'pending'" @click="closeRequest(r)">结束处理</text>
 					</view>
 				</view>
 			</view>
@@ -213,6 +225,7 @@ import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { isPurchaseManager, refreshPurchaseRequestStatus, requestStatusLabel, startOfToday, PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
 import { notifyPurchaseManagers } from '@/utils/message.js'
+import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -282,7 +295,17 @@ export default {
 			const salePrice = Number(item.salePrice) || 0
 			if (salePrice > 0) return salePrice
 			const product = item.productId ? db.get(T.PRODUCT, item.productId) : null
-			return product ? this.defaultSalePrice(product) : 0
+			return product ? fromBaseUnitPrice(this.defaultSalePrice(product), product, item.unit, item.unitFactor) : 0
+		},
+		unitOptions(item = {}) {
+			return productUnitOptions(db.get(T.PRODUCT, item.productId) || {})
+		},
+		changeItemUnit(e, item, persist = false) {
+			const product = db.get(T.PRODUCT, item.productId) || {}
+			const option = this.unitOptions(item)[Number(e.detail.value)]
+			if (!option || option.value === item.unit) return
+			Object.assign(item, convertRecordUnit(item, product, option.value, ['purchasePrice', 'salePrice']))
+			if (persist && item._id) this.saveRequestItemInline(item)
 		},
 		validatePurchaseCost(item = {}) {
 			const name = item.productName || '商品'
@@ -308,7 +331,7 @@ export default {
 		},
 		statusLabel(status) { return requestStatusLabel(status) },
 		statusTag(status) {
-			return { pending: 'tag-orange', pre: 'tag-blue', purchased: 'tag-green', converted: 'tag-gray' }[status] || 'tag-gray'
+			return { pending: 'tag-orange', pre: 'tag-blue', purchased: 'tag-green', converted: 'tag-gray', closed: 'tag-gray', withdrawn: 'tag-gray' }[status] || 'tag-gray'
 		},
 		resetForm() {
 			this.form = {
@@ -334,8 +357,12 @@ export default {
 		},
 		quoteConvertibleCount(orderId) {
 			return db.list(T.QUOTE_ITEM, { orderId, status: 'done' }).filter((it) => {
-				return it._id && !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+				return it._id && !this.hasActivePurchaseRequestItem(it._id)
 			}).length
+		},
+		hasActivePurchaseRequestItem(quoteItemId) {
+			return db.list(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: quoteItemId })
+				.some((row) => ![PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(row.status))
 		},
 		quoteDoneCount(orderId) {
 			return db.list(T.QUOTE_ITEM, { orderId, status: 'done' }).filter((it) => it._id).length
@@ -463,10 +490,13 @@ export default {
 		},
 		selectProduct(p) {
 			if (this.draftItems.some((it) => it.productId === p._id)) return toast('该商品已添加')
+			const unit = defaultUnit(p)
 			this.draftItems.push({
 				productId: p._id,
 				productName: p.name,
 				spec: p.spec,
+				unit,
+				unitFactor: unitFactor(p, unit),
 				qty: 1,
 				purchasePrice: Number(p.purchasePrice) || 0,
 				salePrice: this.defaultSalePrice(p),
@@ -523,6 +553,8 @@ export default {
 					productId: it.productId,
 					productName: it.productName,
 					spec: it.spec,
+					unit: it.unit || defaultUnit(db.get(T.PRODUCT, it.productId) || {}),
+					unitFactor: unitFactor(db.get(T.PRODUCT, it.productId) || {}, it.unit, it.unitFactor),
 					qty: Number(it.qty) || 1,
 					purchasePrice: Number(it.purchasePrice) || 0,
 					salePrice: this.itemSalePrice(it),
@@ -560,14 +592,21 @@ export default {
 			let rows = db.list(T.PURCHASE_REQUEST, null, 'createTime', true)
 			if (this.managerMode) {
 				const today = startOfToday()
-				rows = rows.filter((r) => (r.createTime || 0) >= today && r.status !== PURCHASE_REQUEST_STATUS.CONVERTED)
+				rows = rows.filter((r) => {
+					return (r.createTime || 0) >= today &&
+						![PURCHASE_REQUEST_STATUS.CONVERTED, PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(r.status)
+				})
 			} else {
-				rows = rows.filter((r) => r.employeeId === this.session.id)
+				rows = rows.filter((r) => r.employeeId === this.session.id && r.status === PURCHASE_REQUEST_STATUS.PENDING)
 			}
 			this.requestRows = rows
 			const map = {}
 			rows.forEach((r) => {
-				map[r._id] = db.list(T.PURCHASE_REQUEST_ITEM, { requestId: r._id }).map((it) => ({ ...it, salePrice: this.itemSalePrice(it) }))
+				map[r._id] = db.list(T.PURCHASE_REQUEST_ITEM, { requestId: r._id }).map((it) => {
+					const product = db.get(T.PRODUCT, it.productId) || {}
+					const unit = it.unit || defaultUnit(product)
+					return { ...it, unit, unitFactor: unitFactor(product, unit, it.unitFactor), salePrice: this.itemSalePrice({ ...it, unit }) }
+				})
 			})
 			this.requestItemMap = map
 		},
@@ -575,7 +614,43 @@ export default {
 			return this.requestItemMap[id] || []
 		},
 		canEditRequest(r) {
-			return r.status !== PURCHASE_REQUEST_STATUS.CONVERTED && (this.managerMode || r.employeeId === this.session.id)
+			return r.status === PURCHASE_REQUEST_STATUS.PENDING && (this.managerMode || r.employeeId === this.session.id)
+		},
+		canWithdrawRequest(r) {
+			return !this.managerMode && r.employeeId === this.session.id && r.status === PURCHASE_REQUEST_STATUS.PENDING
+		},
+		canDeleteRequest(r) {
+			return r.status === PURCHASE_REQUEST_STATUS.PENDING && (this.managerMode || r.employeeId === this.session.id)
+		},
+		async withdrawRequest(request) {
+			if (!this.canWithdrawRequest(request)) return
+			if (!(await confirmDialog('确定撤回该采购申请？撤回后可从成交报价重新申报。'))) return
+			db.update(T.PURCHASE_REQUEST, request._id, { status: PURCHASE_REQUEST_STATUS.WITHDRAWN })
+			db.list(T.PURCHASE_REQUEST_ITEM, { requestId: request._id }).forEach((item) => {
+				db.update(T.PURCHASE_REQUEST_ITEM, item._id, { status: PURCHASE_REQUEST_STATUS.WITHDRAWN })
+			})
+			if (this.form._id === request._id) this.resetForm()
+			this.loadRequests()
+			toast('采购申请已撤回', 'success')
+		},
+		async deleteRequest(request) {
+			if (!this.canDeleteRequest(request)) return
+			if (!(await confirmDialog('确定删除该采购申请及全部明细？'))) return
+			db.list(T.PURCHASE_REQUEST_ITEM, { requestId: request._id }).forEach((item) => db.remove(T.PURCHASE_REQUEST_ITEM, item._id))
+			db.remove(T.PURCHASE_REQUEST, request._id)
+			if (this.form._id === request._id) this.resetForm()
+			this.loadRequests()
+			toast('采购申请已删除', 'success')
+		},
+		async closeRequest(request) {
+			if (!this.managerMode || request.status !== PURCHASE_REQUEST_STATUS.PENDING) return
+			if (!(await confirmDialog('确定结束处理？该申请将不再显示给申请人。'))) return
+			db.update(T.PURCHASE_REQUEST, request._id, { status: PURCHASE_REQUEST_STATUS.CLOSED })
+			db.list(T.PURCHASE_REQUEST_ITEM, { requestId: request._id }).forEach((item) => {
+				db.update(T.PURCHASE_REQUEST_ITEM, item._id, { status: PURCHASE_REQUEST_STATUS.CLOSED })
+			})
+			this.loadRequests()
+			toast('采购申请已结束', 'success')
 		},
 		editRequest(r) {
 			this.form = {
@@ -603,6 +678,8 @@ export default {
 				qty: Number(it.qty) || 1,
 				purchasePrice: Number(it.purchasePrice) || 0,
 				salePrice: this.itemSalePrice(it),
+				unit: it.unit || defaultUnit(db.get(T.PRODUCT, it.productId) || {}),
+				unitFactor: unitFactor(db.get(T.PRODUCT, it.productId) || {}, it.unit, it.unitFactor),
 				supplierId: it.supplierId || '',
 				supplierName: it.supplierName || ''
 			})
@@ -633,7 +710,7 @@ export default {
 			if (!this.validatePurchaseRows(rows)) return
 			const groups = {}
 			rows.forEach((it) => {
-				const key = `${it.customerId || 'no_customer'}_${it.supplierId}`
+				const key = it.supplierId
 				if (!groups[key]) groups[key] = []
 				groups[key].push(it)
 			})
@@ -645,8 +722,8 @@ export default {
 					status: 'pre',
 					supplierId: first.supplierId,
 					supplierName: first.supplierName,
-					customerId: first.customerId,
-					customerName: first.customerName,
+					customerId: '',
+					customerName: '',
 					employeeId: this.session.id,
 					employeeName: this.session.name,
 					freight: 0,
@@ -665,6 +742,8 @@ export default {
 						supplierName: first.supplierName,
 						customerId: it.customerId,
 						customerName: it.customerName,
+						unit: it.unit || defaultUnit(db.get(T.PRODUCT, it.productId) || {}),
+						unitFactor: unitFactor(db.get(T.PRODUCT, it.productId) || {}, it.unit, it.unitFactor),
 						qty: Number(it.qty) || 1,
 						purchasePrice: Number(it.purchasePrice) || 0,
 						salePrice: this.itemSalePrice(it),
@@ -692,16 +771,20 @@ export default {
 			this.form.customerName = order.customerName
 			this.form.sourceQuoteOrderId = orderId
 			this.draftItems = db.list(T.QUOTE_ITEM, { orderId, status: 'done' }).filter((it) => {
-				return !db.find(T.PURCHASE_REQUEST_ITEM, { sourceQuoteItemId: it._id })
+				return !this.hasActivePurchaseRequestItem(it._id)
 			}).map((it) => {
 				const product = db.get(T.PRODUCT, it.productId) || {}
+				const unit = it.unit || defaultUnit(product)
+				const factor = unitFactor(product, unit, it.unitFactor)
 				return {
 					productId: it.productId,
 					productName: it.productName,
 					spec: it.spec,
+					unit,
+					unitFactor: factor,
 					qty: Number(it.qty) || 1,
-					purchasePrice: Number(product.purchasePrice) || Number(it.costPrice) || 0,
-					salePrice: Number(it.price) || this.defaultSalePrice(product),
+					purchasePrice: fromBaseUnitPrice(product.purchasePrice, product, unit, factor) || Number(it.costPrice) || 0,
+					salePrice: Number(it.price) || fromBaseUnitPrice(this.defaultSalePrice(product), product, unit, factor),
 					supplierId: '',
 					supplierName: '',
 					status: PURCHASE_REQUEST_STATUS.PENDING,

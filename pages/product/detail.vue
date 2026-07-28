@@ -28,7 +28,7 @@
 		<!-- 价格 -->
 		<view class="card">
 			<view class="row-between mb-m">
-				<text class="t-title">价格</text>
+				<text class="t-title">价格（每{{ form.unitSmall || '个' }}）</text>
 				<text class="t-primary" @click="recalc">按采购价重算</text>
 			</view>
 			<view class="field"><text class="field-label">采购价*</text><input class="field-input" type="digit" v-model="form.purchasePrice" @blur="recalc" placeholder="手动录入" /></view>
@@ -55,7 +55,7 @@
 				<text class="t-bold">最近成交价（真实成交）</text>
 				<view class="history-row" v-for="it in recentDeals" :key="it._id">
 					<text class="t-sub flex1">{{ it.customerName || customerName(it.customerId) }} · {{ it.employeeName || employeeName(it.employeeId) }}</text>
-					<text class="t-price">{{ money(it.price) }}</text>
+					<text class="t-price">{{ money(it.price) }}/{{ it.unit || form.unitSmall || '个' }}</text>
 					<text class="t-muted">{{ fmt(it.updateTime || it.createTime) }}</text>
 				</view>
 				<text class="t-muted mt-s" v-if="!recentDeals.length">暂无有效成交价</text>
@@ -65,7 +65,7 @@
 				<text class="t-bold">最近报价（未成交）</text>
 				<view class="history-row" v-for="it in recentQuotes" :key="it._id">
 					<text class="t-sub flex1">{{ it.customerName || customerName(it.customerId) }} · {{ it.employeeName || employeeName(it.employeeId) }}</text>
-					<text class="t-price">{{ money(it.price) }}</text>
+					<text class="t-price">{{ money(it.price) }}/{{ it.unit || form.unitSmall || '个' }}</text>
 					<text class="t-muted">{{ fmt(it.updateTime || it.createTime) }}</text>
 				</view>
 				<text class="t-muted mt-s" v-if="!recentQuotes.length">暂无有效报价</text>
@@ -76,7 +76,7 @@
 				<view class="history-row" v-for="it in purchaseRows" :key="it._id">
 					<text class="t-sub flex1">{{ it.supplierName }} · 数量 {{ it.qty || '-' }}</text>
 					<view class="col purchase-price-col">
-						<text class="t-price">{{ money(it.purchasePrice) }}</text>
+						<text class="t-price">{{ money(it.purchasePrice) }}/{{ it.unit || form.unitSmall || '个' }}</text>
 						<text class="t-muted">成本 {{ money(it.costPrice) }}</text>
 					</view>
 					<text class="t-muted">{{ fmt(it.time) }}</text>
@@ -89,12 +89,18 @@
 				<view class="comp-row" v-for="q in compQuotes" :key="q._id">
 					<text class="t-sub flex1">{{ q.competitorName || '-' }}</text>
 					<input class="mini-ipt" type="digit" v-model="q.price" @blur="saveCompQuote(q)" />
+					<picker :range="unitOptions" range-key="label" @change="changeCompQuoteUnit($event, q)">
+						<text class="inline-action">{{ q.unit || form.unitSmall || '个' }}</text>
+					</picker>
 					<text class="t-muted">{{ fmt(q.createTime) }}</text>
 					<text class="t-danger text-action" @click="removeCompQuote(q)">删除</text>
 				</view>
 				<view class="row gap-s mt-m">
 					<picker :range="competitors" :range-key="'name'" @change="pickCompetitor">
 						<view class="input-box compact"><text :class="selCompName ? '' : 't-muted'">{{ selCompName || '选择同行' }}</text></view>
+					</picker>
+					<picker :range="unitOptions" range-key="label" @change="pickNewCompUnit">
+						<view class="input-box compact">{{ compUnit || form.unitSmall || '个' }}</view>
 					</picker>
 					<input class="input-box compact price-input" type="digit" v-model="compInputPrice" placeholder="报价" />
 					<button class="btn btn-sm" @click="addCompQuote">录入</button>
@@ -116,6 +122,7 @@ import { T } from '@/store/schema.js'
 import { calcPrices, getSettings, isQuotableQuoteItem } from '@/utils/pricing.js'
 import { toast, confirmDialog, fmtMoney, fmtDate } from '@/utils/format.js'
 import { enableShareMenu, productShare } from '@/utils/share.js'
+import { convertRecordUnit, defaultUnit, productUnitOptions, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -136,12 +143,14 @@ export default {
 			selCompId: '',
 			selCompName: '',
 			compInputPrice: '',
+			compUnit: '个',
 			historyStart: '',
 			historyEnd: ''
 		}
 	},
 	computed: {
-		totalSmall() { return (Number(this.form.largeToMedium) || 0) * (Number(this.form.mediumToSmall) || 0) }
+		totalSmall() { return (Number(this.form.largeToMedium) || 0) * (Number(this.form.mediumToSmall) || 0) },
+		unitOptions() { return productUnitOptions(this.form) }
 	},
 	onLoad(q) {
 		enableShareMenu()
@@ -152,6 +161,7 @@ export default {
 				this.form = { ...this.form, ...p }
 				this.originalName = p.name || ''
 			}
+			this.compUnit = defaultUnit(this.form)
 			this.loadHistory()
 			uni.setNavigationBarTitle({ title: '编辑产品' })
 		} else {
@@ -165,6 +175,16 @@ export default {
 	methods: {
 		money(n) { return fmtMoney(n) },
 		fmt(t) { return fmtDate(t) },
+		changeCompQuoteUnit(e, quote) {
+			const option = this.unitOptions[Number(e.detail.value)]
+			if (!option || option.value === quote.unit) return
+			Object.assign(quote, convertRecordUnit(quote, this.form, option.value, ['price']))
+			this.saveCompQuote(quote)
+		},
+		pickNewCompUnit(e) {
+			const option = this.unitOptions[Number(e.detail.value)]
+			if (option) this.compUnit = option.value
+		},
 		dateStart(date) {
 			if (!date) return 0
 			const d = new Date(date.replace(/-/g, '/'))
@@ -269,16 +289,23 @@ export default {
 				productId: this.id,
 				competitorId: this.selCompId,
 				competitorName: this.selCompName,
-				price
+				price,
+				unit: this.compUnit || defaultUnit(this.form),
+				unitFactor: unitFactor(this.form, this.compUnit)
 			})
 			this.selCompId = ''
 			this.selCompName = ''
 			this.compInputPrice = ''
+			this.compUnit = defaultUnit(this.form)
 			this.loadHistory()
 			toast('已录入同行报价', 'success')
 		},
 		saveCompQuote(q) {
-			db.update(T.COMP_QUOTE, q._id, { price: Number(q.price) || 0 })
+			db.update(T.COMP_QUOTE, q._id, {
+				price: Number(q.price) || 0,
+				unit: q.unit || defaultUnit(this.form),
+				unitFactor: unitFactor(this.form, q.unit, q.unitFactor)
+			})
 			toast('同行报价已更新', 'success')
 			this.loadHistory()
 		},
