@@ -41,7 +41,10 @@ export function requestStatusLabel(status) {
 
 export function refreshPurchaseRequestStatus(requestId) {
 	const items = db.list(T.PURCHASE_REQUEST_ITEM, { requestId })
-	if (!items.length) return null
+	if (!items.length) {
+		db.remove(T.PURCHASE_REQUEST, requestId)
+		return null
+	}
 	const current = db.get(T.PURCHASE_REQUEST, requestId)
 	if (current && [PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(current.status)) return current
 	const converted = items.filter((it) => it.status === PURCHASE_REQUEST_STATUS.CONVERTED).length

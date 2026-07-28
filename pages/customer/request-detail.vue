@@ -135,13 +135,21 @@ export default {
 		normalizeItem(it) {
 			const product = db.get(T.PRODUCT, it.productId || it._id) || {}
 			const unit = it.unit || defaultUnit(product)
+			const factor = unitFactor(product, unit, it.unitFactor)
 			return {
 				...it,
 				unit,
-				unitFactor: unitFactor(product, unit, it.unitFactor),
+				unitFactor: factor,
 				qty: Number(it.qty) || 1,
 				customerExpect: Number(it.customerExpect) || Number(it.suggestPrice) || '',
-				supplierQuotes: Array.isArray(it.supplierQuotes) ? it.supplierQuotes : [],
+				supplierQuotes: (Array.isArray(it.supplierQuotes) ? it.supplierQuotes : []).map((quote) => {
+					const quoteUnit = quote.unit || unit
+					return {
+						...quote,
+						unit: quoteUnit,
+						unitFactor: unitFactor(product, quoteUnit, quote.unitFactor || factor)
+					}
+				}),
 				_supplierName: '',
 				_supplierPrice: '',
 				_supplierSuggestions: []
@@ -199,7 +207,11 @@ export default {
 				customerExpect,
 				suggestPrice: Number(item.suggestPrice) || 0,
 				unit: item.unit,
-				unitFactor: item.unitFactor
+				unitFactor: item.unitFactor,
+				supplierQuotes: item.supplierQuotes.map((quote) => ({
+					...quote,
+					price: Number(quote.price) || 0
+				}))
 			})
 			db.update(T.REQUEST_ORDER, this.id, { totalReference: this.totalReference })
 			toast('已更新申请商品', 'success')

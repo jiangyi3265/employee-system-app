@@ -4,6 +4,7 @@ import { pullAll, pushTables } from './remote.js'
 
 const TABLES = Object.values(T)
 const LAST_PULL_KEY = 'sqms_last_pull_time'
+const PENDING_SYNC_KEY = 'sqms_pending_sync'
 const PRESERVE_WHEN_REMOTE_EMPTY = new Set([T.EMPLOYEE, T.CUSTOMER])
 const PROTECTED_WECHAT_FIELDS = ['wechatOpenid', 'wechatUnionid', 'wechatBindTime']
 
@@ -20,6 +21,8 @@ function stripWechatFields(table, rows) {
 let enabled = false
 let timer = null
 let flushPromise = null
+let activeBatch = null
+let pendingHydrated = false
 const dirtyUpserts = new Map()
 const dirtyDeletions = new Map()
 
@@ -78,6 +81,100 @@ function hasPendingChanges() {
 	return dirtyUpserts.size > 0 || dirtyDeletions.size > 0
 }
 
+function applyIds(targetUpserts, targetDeletions, table, upsertIds = [], deletedIds = []) {
+	const upserts = idsFor(targetUpserts, table)
+	const deletions = idsFor(targetDeletions, table)
+	deletedIds.forEach((id) => {
+		if (!id) return
+		upserts.delete(id)
+		deletions.add(id)
+	})
+	upsertIds.forEach((id) => {
+		if (!id) return
+		deletions.delete(id)
+		upserts.add(id)
+	})
+	if (!upserts.size) targetUpserts.delete(table)
+	if (!deletions.size) targetDeletions.delete(table)
+}
+
+function pendingIdMaps() {
+	const upserts = new Map()
+	const deletions = new Map()
+	if (activeBatch) {
+		Object.entries(activeBatch.tables || {}).forEach(([table, rows]) => {
+			applyIds(upserts, deletions, table, rows.map((row) => row && row._id).filter(Boolean), [])
+		})
+		Object.entries(activeBatch.deletions || {}).forEach(([table, ids]) => {
+			applyIds(upserts, deletions, table, [], ids)
+		})
+	}
+	dirtyDeletions.forEach((ids, table) => applyIds(upserts, deletions, table, [], Array.from(ids)))
+	dirtyUpserts.forEach((ids, table) => applyIds(upserts, deletions, table, Array.from(ids), []))
+	return { upserts, deletions }
+}
+
+function mapToObject(map) {
+	const data = {}
+	map.forEach((ids, table) => {
+		if (ids.size) data[table] = Array.from(ids)
+	})
+	return data
+}
+
+function persistPendingChanges() {
+	const pending = pendingIdMaps()
+	const payload = {
+		upserts: mapToObject(pending.upserts),
+		deletions: mapToObject(pending.deletions)
+	}
+	if (!Object.keys(payload.upserts).length && !Object.keys(payload.deletions).length) {
+		uni.removeStorageSync(PENDING_SYNC_KEY)
+		return
+	}
+	uni.setStorageSync(PENDING_SYNC_KEY, payload)
+}
+
+function hydratePendingChanges() {
+	if (pendingHydrated) return
+	pendingHydrated = true
+	const saved = uni.getStorageSync(PENDING_SYNC_KEY) || {}
+	Object.entries(saved.deletions || {}).forEach(([table, ids]) => {
+		applyIds(dirtyUpserts, dirtyDeletions, table, [], Array.isArray(ids) ? ids : [])
+	})
+	Object.entries(saved.upserts || {}).forEach(([table, ids]) => {
+		applyIds(dirtyUpserts, dirtyDeletions, table, Array.isArray(ids) ? ids : [], [])
+	})
+}
+
+function capturePendingLocalState() {
+	const tables = {}
+	const deletions = {}
+	dirtyUpserts.forEach((ids, table) => {
+		const rows = Array.from(ids).map((id) => db.get(table, id)).filter(Boolean)
+		if (rows.length) tables[table] = rows
+	})
+	dirtyDeletions.forEach((ids, table) => {
+		if (ids.size) deletions[table] = Array.from(ids)
+	})
+	return { tables, deletions }
+}
+
+function reapplyPendingLocalState(batch) {
+	const tableNames = new Set([
+		...Object.keys(batch.tables || {}),
+		...Object.keys(batch.deletions || {})
+	])
+	tableNames.forEach((table) => {
+		const rowsById = new Map(db.list(table).map((row) => [row._id, row]))
+		;(batch.deletions[table] || []).forEach((id) => rowsById.delete(id))
+		;(batch.tables[table] || []).forEach((row) => {
+			if (row && row._id) rowsById.set(row._id, row)
+		})
+		db.setAll(table, Array.from(rowsById.values()), true)
+	})
+}
+
 function scheduleFlush() {
 	if (timer) clearTimeout(timer)
 	timer = setTimeout(() => {
@@ -107,6 +204,7 @@ export function markDirty(table, mutation = null) {
 	})
 	if (!upserts.size) dirtyUpserts.delete(table)
 	if (!deletions.size) dirtyDeletions.delete(table)
+	persistPendingChanges()
 	scheduleFlush()
 }
 
@@ -144,10 +242,15 @@ function restorePendingChanges(batch) {
 
 async function flushPendingChanges() {
 	const batch = takePendingChanges()
+	activeBatch = batch
 	try {
 		await pushTables(batch.tables, batch.deletions)
+		activeBatch = null
+		persistPendingChanges()
 	} catch (e) {
+		activeBatch = null
 		restorePendingChanges(batch)
+		persistPendingChanges()
 		console.warn('SQMS sync failed:', e && e.message ? e.message : e)
 	} finally {
 		flushPromise = null
@@ -163,21 +266,25 @@ export function flushDirtyTables() {
 }
 
 export async function bootstrapRemoteSync() {
+	hydratePendingChanges()
+	const pendingLocalState = capturePendingLocalState()
 	try {
 		const data = await syncFromRemote()
+		reapplyPendingLocalState(pendingLocalState)
 		enableRemoteSync(true)
 		const remoteCount = TABLES.reduce((count, table) => {
 			return count + (Array.isArray(data[table]) ? data[table].length : 0)
 		}, 0)
-		if (remoteCount === 0) {
-			return true
-		} else if (data.__preservedTables && Object.keys(data.__preservedTables).length) {
+		if (remoteCount > 0 && data.__preservedTables && Object.keys(data.__preservedTables).length) {
 			await pushTables(data.__preservedTables)
 		}
+		if (hasPendingChanges()) await flushDirtyTables()
 		return true
 	} catch (e) {
 		console.warn('SQMS remote unavailable, using local data:', e && e.message ? e.message : e)
-		enableRemoteSync(false)
+		enableRemoteSync(true)
+		persistPendingChanges()
+		if (hasPendingChanges()) scheduleFlush()
 		return false
 	}
 }

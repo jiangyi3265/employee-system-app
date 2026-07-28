@@ -21,7 +21,7 @@
 				<text class="field-label">运费</text>
 				<input class="field-input" type="digit" v-model="form.freight" placeholder="0" @blur="allocateFreight(true)" :disabled="supplierView" />
 			</view>
-			<text class="t-muted mt-s">{{ preFlow ? '预采购单可先核价，采购入库后再同步产品成本。' : '保存采购明细后，可按数量自动分摊单件运费并同步产品成本。' }}</text>
+			<text class="t-muted mt-s">{{ preFlow ? '预采购单可先核价，采购入库后再同步产品成本。' : '保存采购明细后，可按单位换算数量自动分摊单件运费并同步产品成本。' }}</text>
 		</view>
 
 		<!-- 采购明细 -->
@@ -30,7 +30,7 @@
 				<text class="t-title">采购明细</text>
 				<text class="t-primary" v-if="!supplierView" @click="addProductNav">+ 添加产品</text>
 			</view>
-			<button class="btn btn-ghost btn-block btn-sm mb-m" v-if="items.length && !supplierView" @click="allocateFreight(true)">按数量分摊运费</button>
+			<button class="btn btn-ghost btn-block btn-sm mb-m" v-if="items.length && !supplierView" @click="allocateFreight(true)">按换算数量分摊运费</button>
 			<view class="empty" v-if="!items.length">暂无采购明细</view>
 			<view class="item-row" v-for="(it, i) in items" :key="it._id || i">
 				<view class="row-between">
@@ -396,14 +396,21 @@ export default {
 		},
 		allocateFreight(save = false, showTip = true) {
 			if (!this.items.length) return
-			const totalQty = this.items.reduce((sum, it) => sum + (Number(it.qty) || 0), 0)
+			const totalBaseQty = this.items.reduce((sum, it) => {
+				const product = db.get(T.PRODUCT, it.productId) || {}
+				const factor = unitFactor(product, it.unit, it.unitFactor)
+				return sum + (Number(it.qty) || 0) * factor
+			}, 0)
 			const freight = Number(this.form.freight) || 0
-			const unitFreight = totalQty > 0 ? round2(freight / totalQty) : 0
+			const baseUnitFreight = totalBaseQty > 0 ? freight / totalBaseQty : 0
 			this.items.forEach((it) => {
+				const product = db.get(T.PRODUCT, it.productId) || {}
+				const factor = unitFactor(product, it.unit, it.unitFactor)
+				const unitFreight = round2(baseUnitFreight * factor)
 				it.freightShare = unitFreight
 				if (save && it._id) db.update(T.PURCHASE_ITEM, it._id, { freightShare: unitFreight })
 			})
-			if (showTip) toast('已按数量分摊运费', 'success')
+			if (showTip) toast('已按单位换算数量分摊运费', 'success')
 		},
 		syncProductPrice(it, silent = false) {
 			const p = db.get(T.PRODUCT, it.productId)
@@ -425,8 +432,24 @@ export default {
 		},
 		removeItem(it, i) {
 			if (this.supplierView) return toast('分享页不能删除明细')
+			const requestId = it.sourcePurchaseRequestId
+			if (this.preFlow && it.sourcePurchaseRequestItemId) {
+				db.update(T.PURCHASE_REQUEST_ITEM, it.sourcePurchaseRequestItemId, {
+					status: PURCHASE_REQUEST_STATUS.PENDING,
+					prePurchaseOrderId: '',
+					purchaseOrderId: ''
+				})
+			}
 			if (it._id) db.remove(T.PURCHASE_ITEM, it._id)
 			this.items.splice(i, 1)
+			if (requestId) refreshPurchaseRequestStatus(requestId)
+			if (this.preFlow && !this.items.length) {
+				db.remove(T.PURCHASE_ORDER, this.id)
+				toast('明细已删除，空预采购单已一并删除', 'success')
+				setTimeout(() => uni.navigateBack(), 300)
+				return
+			}
+			this.allocateFreight(true, false)
 		},
 		saveOrder(showTip = true) {
 			if (this.supplierView) {

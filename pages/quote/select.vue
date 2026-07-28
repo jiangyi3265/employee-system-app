@@ -166,7 +166,7 @@ import { T } from '@/store/schema.js'
 import { fmtMoney, fmtDate, toast } from '@/utils/format.js'
 import { recentDealPrices, competitorQuotes, recommendQuote, isQuotableQuoteItem, calcPrices, round2 } from '@/utils/pricing.js'
 import { listCompetitors } from '@/utils/competitor.js'
-import { convertUnitPrice, defaultUnit, productUnitOptions, recordBasePrice, unitFactor } from '@/utils/units.js'
+import { convertUnitPrice, defaultUnit, fromBaseUnitPrice, productUnitOptions, recordBasePrice, unitFactor } from '@/utils/units.js'
 
 export default {
 	data() {
@@ -355,7 +355,14 @@ export default {
 				group.forEach((row, index) => {
 					const prev = group[index + 1]
 					row.prevPurchasePrice = prev ? prev.normalizedPurchasePrice : null
-					row.delta = prev ? round2(row.normalizedPurchasePrice - prev.normalizedPurchasePrice) : null
+					row.delta = prev
+						? round2(fromBaseUnitPrice(
+							row.normalizedPurchasePrice - prev.normalizedPurchasePrice,
+							db.get(T.PRODUCT, productId) || {},
+							row.unit,
+							row.unitFactor
+						))
+						: null
 				})
 			})
 			this.purchaseRows = rows.slice(0, 12)

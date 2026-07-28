@@ -280,6 +280,7 @@ export default {
 		}
 	},
 	onShow() {
+		uni.setNavigationBarTitle({ title: '采购申请' })
 		if (this.session.id) {
 			this.managerMode = isPurchaseManager(this.session)
 			this.loadRequests()
@@ -516,7 +517,9 @@ export default {
 		removeDraftItem(it, index) {
 			if (it._id) {
 				db.remove(T.PURCHASE_REQUEST_ITEM, it._id)
-				refreshPurchaseRequestStatus(this.form._id)
+				const requestId = this.form._id
+				refreshPurchaseRequestStatus(requestId)
+				if (!db.get(T.PURCHASE_REQUEST, requestId)) this.resetForm()
 				this.loadRequests()
 			}
 			this.draftItems.splice(index, 1)
@@ -692,7 +695,11 @@ export default {
 			refreshPurchaseRequestStatus(it.requestId)
 			this.loadRequests()
 			if (this.form._id === it.requestId) {
-				this.draftItems = this.draftItems.filter((row) => row._id !== it._id)
+				if (db.get(T.PURCHASE_REQUEST, it.requestId)) {
+					this.draftItems = this.draftItems.filter((row) => row._id !== it._id)
+				} else {
+					this.resetForm()
+				}
 			}
 			toast('采购申请明细已删除', 'success')
 		},
