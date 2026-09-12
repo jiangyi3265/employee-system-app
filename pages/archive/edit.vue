@@ -8,7 +8,7 @@
 			<template v-if="type === 'customer'">
 				<view class="field"><text class="field-label">姓名*</text><input class="field-input" v-model="form.name" placeholder="必填" /></view>
 				<view class="field"><text class="field-label">手机号*</text><input class="field-input" type="number" maxlength="11" v-model="form.phone" placeholder="必填" /></view>
-				<view class="field"><text class="field-label">密码</text><input class="field-input" password v-model="form.password" placeholder="留空则不修改" /></view>
+				<view class="field"><text class="field-label">密码{{ id ? '' : '*' }}</text><input class="field-input" password v-model="form.password" :placeholder="id ? '留空则不修改' : '新增账号必填'" /></view>
 				<view class="field"><text class="field-label">公司</text><input class="field-input" v-model="form.company" placeholder="选填" /></view>
 				<view class="field">
 					<text class="field-label">等级</text>
@@ -38,7 +38,7 @@
 			<template v-if="type === 'employee'">
 				<view class="field"><text class="field-label">姓名*</text><input class="field-input" v-model="form.name" placeholder="必填" /></view>
 				<view class="field"><text class="field-label">手机号*</text><input class="field-input" type="number" maxlength="11" v-model="form.phone" placeholder="必填" /></view>
-				<view class="field"><text class="field-label">密码</text><input class="field-input" password v-model="form.password" placeholder="留空则不修改" /></view>
+				<view class="field"><text class="field-label">密码{{ id ? '' : '*' }}</text><input class="field-input" password v-model="form.password" :placeholder="id ? '留空则不修改' : '新增账号必填'" /></view>
 				<view class="field">
 					<text class="field-label">角色</text>
 					<picker :range="roles" :range-key="'label'" @change="form.role = roles[$event.detail.value].value">
@@ -145,7 +145,10 @@ export default {
 			this.id = q.id
 			const table = TABLE_MAP[this.type]
 			const rec = db.get(table, q.id)
-			if (rec) this.form = { ...rec }
+			if (rec) {
+				this.form = { ...rec }
+				if (this.type === 'employee' || this.type === 'customer') this.form.password = ''
+			}
 		} else {
 			this.initForm()
 			this.applyQuerySeed(q)
@@ -188,9 +191,13 @@ export default {
 		},
 		save() {
 			if (!this.form.name) return toast('名称不能为空')
+			if ((this.type === 'employee' || this.type === 'customer') && !this.form.phone) return toast('手机号不能为空')
+			if ((this.type === 'employee' || this.type === 'customer') && !/^\d{11}$/.test(String(this.form.phone))) return toast('手机号格式不正确')
+			if (!this.id && (this.type === 'employee' || this.type === 'customer') && !this.form.password) return toast('新增账号必须设置登录密码')
 			const table = TABLE_MAP[this.type]
 			const data = { ...this.form }
 			if (this.id) {
+				if ((this.type === 'employee' || this.type === 'customer') && !data.password) delete data.password
 				db.update(table, this.id, data)
 			} else {
 				db.insert(table, data)
