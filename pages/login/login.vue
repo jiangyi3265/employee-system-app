@@ -31,7 +31,7 @@
 					<input class="ipt-field" :class="{ disabled: !agreed }" :disabled="!agreed" password v-model="password" :placeholder="agreed ? '请输入密码' : '请先勾选同意协议'" />
 				</view>
 
-				<button class="btn btn-block mt-l" :disabled="!agreed" @click="doLogin">登录</button>
+				<button class="btn btn-block mt-l" :disabled="!agreed || loggingIn" :loading="loggingIn" @click="doLogin">{{ loggingIn ? '登录中…' : '登录' }}</button>
 				<button class="btn btn-ghost btn-block mt-m" :disabled="!agreed" @click="doWechat">{{ wechatButtonText }}</button>
 
 				<view class="row-between mt-m">
@@ -75,7 +75,8 @@ export default {
 			phone: '',
 			password: '',
 			agreed: false,
-			showContact: false
+			showContact: false,
+			loggingIn: false
 		}
 	},
 	computed: {
@@ -92,15 +93,21 @@ export default {
 			toast('请先阅读并同意用户服务协议和隐私政策')
 			return false
 		},
-		doLogin() {
+		async doLogin() {
 			if (!this.ensureAgreed()) return
 			if (!this.phone || !this.password) return toast('请输入手机号和密码')
-			const res = this.tab === 'employee'
-				? loginEmployee(this.phone, this.password)
-				: loginCustomer(this.phone, this.password)
-			if (!res.ok) return toast(res.msg)
-			toast('登录成功', 'success')
-			setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 300)
+			if (this.loggingIn) return
+			this.loggingIn = true
+			try {
+				const res = this.tab === 'employee'
+					? await loginEmployee(this.phone, this.password)
+					: await loginCustomer(this.phone, this.password)
+				if (!res.ok) return toast(res.msg)
+				toast(res.offline ? '离线登录成功' : '登录成功', 'success')
+				setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 300)
+			} finally {
+				this.loggingIn = false
+			}
 		},
 		async doWechat() {
 			if (!this.ensureAgreed()) return

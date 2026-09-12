@@ -45,10 +45,18 @@ export function apiRequest(path, options = {}) {
 				if (res.statusCode >= 200 && res.statusCode < 300 && (data.code == null || data.code === 200)) {
 					resolve(data)
 				} else {
-					reject(new Error(data.msg || `请求失败 ${res.statusCode}`))
+					const error = new Error(data.msg || `请求失败 ${res.statusCode}`)
+					error.isApiError = true
+					error.statusCode = res.statusCode
+					reject(error)
 				}
 			},
-			fail: reject
+			fail: (err) => {
+				const error = new Error((err && err.errMsg) || '网络连接失败')
+				error.isNetworkError = true
+				error.cause = err
+				reject(error)
+			}
 		})
 	})
 }

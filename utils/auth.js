@@ -3,7 +3,7 @@
  */
 import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
-import { loginWechatRemote, bindWechatRemote, unbindWechatRemote } from '@/store/remote.js'
+import { loginRemote, loginWechatRemote, bindWechatRemote, unbindWechatRemote } from '@/store/remote.js'
 
 const SESSION_KEY = 'sqms_session'
 
@@ -40,7 +40,7 @@ export function currentUser() {
 /**
  * 员工/管理员登录：手机号 + 密码
  */
-export function loginEmployee(phone, password) {
+function loginEmployeeLocal(phone, password) {
 	const emp = db.find(T.EMPLOYEE, { phone })
 	if (!emp) return { ok: false, msg: '该手机号未注册为员工' }
 	if (emp.password !== password) return { ok: false, msg: '密码错误' }
@@ -50,10 +50,14 @@ export function loginEmployee(phone, password) {
 	return { ok: true, session, user: emp }
 }
 
+export async function loginEmployee(phone, password) {
+	return loginWithRemoteFallback(ROLE.EMPLOYEE, phone, password, loginEmployeeLocal)
+}
+
 /**
  * 客户登录：手机号 + 密码，需审核通过
  */
-export function loginCustomer(phone, password) {
+function loginCustomerLocal(phone, password) {
 	const c = db.find(T.CUSTOMER, { phone })
 	if (!c) return { ok: false, msg: '该手机号未注册' }
 	if (c.password !== password) return { ok: false, msg: '密码错误' }
@@ -61,6 +65,10 @@ export function loginCustomer(phone, password) {
 	const session = { role: ROLE.CUSTOMER, id: c._id, name: c.name }
 	setSession(session)
 	return { ok: true, session, user: c }
+}
+
+export async function loginCustomer(phone, password) {
+	return loginWithRemoteFallback(ROLE.CUSTOMER, phone, password, loginCustomerLocal)
 }
 
 function requestWechatLoginCode() {
@@ -104,6 +112,27 @@ function cacheRemoteUser(role, user, password = '') {
 	}
 	db.setAll(table, list, true)
 	return next
+}
+
+async function loginWithRemoteFallback(role, phone, password, localLogin) {
+	try {
+		const data = await loginRemote(role, phone, password)
+		const session = data.session
+		if (!session || !session.id) {
+			return { ok: false, msg: '服务器未返回登录会话' }
+		}
+		setSession(session)
+		const cachedUser = cacheRemoteUser(session.role || role, data.user, password)
+		return { ok: true, session, user: cachedUser || data.user }
+	} catch (e) {
+		// 只有传输层失败才使用旧设备缓存；服务端返回的密码/状态错误必须以服务端为准。
+		if (e && e.isNetworkError) {
+			const local = localLogin(phone, password)
+			if (local.ok) return { ...local, offline: true }
+			return { ok: false, msg: '无法连接服务器，请检查网络后重试' }
+		}
+		return { ok: false, msg: (e && e.message) || '登录失败' }
+	}
 }
 
 /**
