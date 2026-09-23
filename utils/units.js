@@ -48,6 +48,10 @@ export function fromBaseUnitPrice(price, product = {}, unit, storedFactor) {
 	return roundPrice((Number(price) || 0) * unitFactor(product, unit, storedFactor))
 }
 
+export function toBaseUnitQuantity(quantity, product = {}, unit, storedFactor) {
+	return roundPrice((Number(quantity) || 0) * unitFactor(product, unit, storedFactor))
+}
+
 export function convertUnitPrice(price, product = {}, fromUnit, toUnit, fromStoredFactor, toStoredFactor) {
 	const basePrice = toBaseUnitPrice(price, product, fromUnit, fromStoredFactor)
 	return fromBaseUnitPrice(basePrice, product, toUnit, toStoredFactor)

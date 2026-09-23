@@ -23,6 +23,8 @@
 			<view class="convert-row"><text class="convert-label">1{{ form.unitMedium }} =</text><input class="convert-input" type="number" v-model.number="form.mediumToSmall" /><text class="convert-unit">{{ form.unitSmall }}</text></view>
 			<view class="convert-row"><text class="convert-label">1{{ form.unitLarge }} =</text><input class="convert-input" type="number" v-model.number="form.largeToMedium" /><text class="convert-unit">{{ form.unitMedium }}</text></view>
 			<view class="conv">换算：1{{ form.unitLarge }} = {{ form.largeToMedium }}{{ form.unitMedium }} = {{ totalSmall }}{{ form.unitSmall }}</view>
+			<view class="field"><text class="field-label">库存（{{ form.unitSmall || '个' }}）</text><input class="field-input" type="digit" v-model="form.stock" /></view>
+			<text class="t-muted mt-s">采购可按箱、{{ form.unitMedium || '中单位' }}或{{ form.unitSmall || '个' }}录入，入库统一折算为{{ form.unitSmall || '个' }}。</text>
 		</view>
 
 		<!-- 价格 -->
@@ -123,17 +125,19 @@ import { calcPrices, getSettings, isQuotableQuoteItem } from '@/utils/pricing.js
 import { toast, confirmDialog, fmtMoney, fmtDate } from '@/utils/format.js'
 import { enableShareMenu, productShare } from '@/utils/share.js'
 import { convertRecordUnit, defaultUnit, productUnitOptions, unitFactor } from '@/utils/units.js'
+import { refreshRemoteSync } from '@/store/sync.js'
 
 export default {
 	data() {
 		return {
 			id: '',
 			originalName: '',
+			originalStock: 0,
 			form: {
 				name: '', spec: '', brand: '', category: '', attr1: '', attr2: '',
 				unitSmall: '个', unitMedium: '包', unitLarge: '箱',
 				mediumToSmall: 12, largeToMedium: 12,
-				purchasePrice: 0, costPrice: 0, minPrice: 0, suggestPrice: 0, retailPrice: 0
+				stock: 0, stockVersion: 0, purchasePrice: 0, costPrice: 0, minPrice: 0, suggestPrice: 0, retailPrice: 0
 			},
 			recentDeals: [],
 			recentQuotes: [],
@@ -160,6 +164,7 @@ export default {
 			if (p) {
 				this.form = { ...this.form, ...p }
 				this.originalName = p.name || ''
+				this.originalStock = Number(p.stock) || 0
 			}
 			this.compUnit = defaultUnit(this.form)
 			this.loadHistory()
@@ -247,8 +252,9 @@ export default {
 			this.form.suggestPrice = prices.suggestPrice
 			this.form.retailPrice = prices.retailPrice
 		},
-		save() {
+		async save() {
 			const f = this.form
+			if (!Number.isFinite(Number(f.stock)) || Number(f.stock) < 0) return toast('库存不能小于零')
 			const name = f.name.trim()
 			if (!name) return toast('请输入产品名称')
 			if (!f.spec.trim()) return toast('规格不能为空')
@@ -264,6 +270,8 @@ export default {
 				spec: f.spec.trim(),
 				mediumToSmall: Number(f.mediumToSmall) || 0,
 				largeToMedium: Number(f.largeToMedium) || 0,
+				stock: Number(f.stock) || 0,
+				stockVersion: Number(f.stockVersion) || 0,
 				purchasePrice: Number(f.purchasePrice) || 0,
 				costPrice: Number(f.costPrice) || 0,
 				minPrice: Number(f.minPrice) || 0,
@@ -271,8 +279,22 @@ export default {
 				retailPrice: Number(f.retailPrice) || 0
 			}
 			if (this.id) db.update(T.PRODUCT, this.id, data)
-			else db.insert(T.PRODUCT, data)
+			else {
+				const product = db.insert(T.PRODUCT, data)
+				this.id = product._id
+			}
 			this.originalName = data.name
+			if (data.stock !== this.originalStock) {
+				if (!(await refreshRemoteSync())) return toast('库存修改已保存在本机，但尚未同步服务器，请联网后重试')
+				if (!(await refreshRemoteSync())) return toast('库存已上传，正在等待服务器确认，请稍后重新打开')
+				const confirmed = db.get(T.PRODUCT, this.id)
+				if (!confirmed || Number(confirmed.stock) !== data.stock) {
+					if (confirmed) this.form = { ...this.form, ...confirmed }
+					return toast('库存已被其他设备修改，请核对最新数量后重试')
+				}
+				this.originalStock = data.stock
+				this.form.stockVersion = confirmed.stockVersion || 0
+			}
 			toast('已保存', 'success')
 			setTimeout(() => uni.navigateBack(), 300)
 		},

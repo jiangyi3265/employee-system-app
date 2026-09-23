@@ -1,5 +1,6 @@
 import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
+export { mergePurchaseItemRows, purchaseItemSourceItemIds, purchaseItemSourceRequestIds } from './purchase-merge.js'
 
 export const PURCHASE_REQUEST_STATUS = {
 	PENDING: 'pending',

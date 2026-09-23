@@ -72,6 +72,13 @@ export function pushTables(tables, deletions = {}) {
 	})
 }
 
+export function stockInPurchaseRemote(orderId, stockInBy) {
+	return apiRequest('/sqms/purchase/stock-in', {
+		method: 'POST',
+		data: { orderId, stockInBy }
+	})
+}
+
 export function deleteRemoteRecord(table, ids) {
 	return apiRequest(`/sqms/${encodeURIComponent(table)}/${encodeURIComponent(ids)}`, {
 		method: 'DELETE'
