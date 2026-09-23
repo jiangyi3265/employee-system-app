@@ -1,6 +1,8 @@
 <template>
 	<view class="page">
 		<global-stats />
+		<view class="sync-notice" v-if="syncing">正在更新服务器数据…</view>
+		<view class="sync-notice sync-error" v-else-if="syncFailed" @click="refreshData">同步失败，当前为本机缓存 · 点击重试</view>
 		<view class="search-bar">
 			<input class="search-input" v-model="kw" placeholder="搜索客户 / 员工" @input="load" />
 		</view>
@@ -12,7 +14,7 @@
 			<view class="tab-item" :class="{ on: tab === 'done' }" @click="tab = 'done'; load()">已成交</view>
 		</view>
 
-		<view class="empty" v-if="!list.length">暂无报价单</view>
+		<view class="empty" v-if="!list.length && !syncing">暂无报价单</view>
 
 		<view class="card order" v-for="o in list" :key="o._id" @click="go(o._id)">
 			<view class="row-between">
@@ -49,11 +51,14 @@ import { T, DEAL_STATUS, DEAL_STATUS_LABEL, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney } from '@/utils/format.js'
 import { orderFinance } from '@/utils/stats.js'
+import { refreshRemoteSync } from '@/store/sync.js'
 
 export default {
 	data() {
 		return {
 			list: [],
+			syncing: false,
+			syncFailed: false,
 			kw: '',
 			tab: '',
 			session: {},
@@ -75,8 +80,18 @@ export default {
 		if (!s) { uni.redirectTo({ url: '/pages/login/login' }); return }
 		this.session = s
 		this.load()
+		this.refreshData()
 	},
 	methods: {
+		async refreshData() {
+			this.syncing = true
+			try {
+				this.syncFailed = !(await refreshRemoteSync())
+			} finally {
+				this.syncing = false
+				this.load()
+			}
+		},
 		fmt(t) { return fmtDate(t, true) },
 		money(n) { return fmtMoney(n) },
 		dealLabel(s) { return DEAL_STATUS_LABEL[s] || '未知' },
@@ -156,6 +171,8 @@ export default {
 
 <style lang="scss" scoped>
 .search-bar { padding: 20rpx 24rpx; background: #fff; }
+.sync-notice { padding: 12rpx 24rpx; background: #eff6ff; color: #2563eb; font-size: 23rpx; text-align: center; }
+.sync-error { background: #fff7ed; color: #c2410c; }
 .search-input { height: 78rpx; min-height: 78rpx; line-height: normal; background: #f3f4f6; border-radius: 999rpx; padding: 0 32rpx; font-size: 28rpx; }
 .tabs { display: flex; background: #fff; padding: 0 24rpx 20rpx; gap: 16rpx; flex-wrap: wrap; }
 .tab-item { padding: 12rpx 28rpx; border-radius: 999rpx; font-size: 26rpx; color: #6b7280; background: #f3f4f6; }

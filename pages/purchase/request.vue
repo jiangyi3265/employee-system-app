@@ -1,11 +1,13 @@
 <template>
 	<view class="page">
 		<global-stats />
+		<view class="sync-notice" v-if="syncing">正在更新服务器数据…</view>
+		<view class="sync-notice sync-error" v-else-if="syncFailed" @click="refreshData">同步失败，当前为本机缓存 · 点击重试</view>
 		<view class="sub-hero">
 			<text class="sub-hero-title">采购申请</text>
-			<text class="sub-hero-desc">{{ managerMode ? '查看今日所有员工采购需求，按供货商合并预采购单' : '提交自己的采购需求，采购员和管理员会统一处理' }}</text>
+			<text class="sub-hero-desc">{{ managerMode ? '查看所有员工未完成的采购需求，按供货商合并预采购单' : '提交自己的采购需求，采购员和管理员会统一处理' }}</text>
 			<view class="metric-row">
-				<view class="metric-pill"><text class="metric-num">{{ requestRows.length }}</text><text class="metric-label">{{ managerMode ? '今日申请' : '我的申请' }}</text></view>
+				<view class="metric-pill"><text class="metric-num">{{ requestRows.length }}</text><text class="metric-label">{{ managerMode ? '未完成申请' : '我的申请' }}</text></view>
 				<view class="metric-pill"><text class="metric-num">{{ pendingItemCount }}</text><text class="metric-label">待处理明细</text></view>
 			</view>
 		</view>
@@ -78,13 +80,13 @@
 
 		<view class="card">
 			<view class="row-between mb-m">
-				<text class="t-title">{{ managerMode ? '今日采购汇总' : '我的采购申请' }}</text>
+				<text class="t-title">{{ managerMode ? '全部员工采购汇总' : '我的采购申请' }}</text>
 				<view class="row gap-s" v-if="managerMode">
 					<button class="btn btn-sm" v-if="pendingItemCount" @click="generatePrePurchase">生成预采购单</button>
 					<button class="btn btn-sm btn-ghost" @click="goPrePurchaseList">预采购单</button>
 				</view>
 			</view>
-			<view class="empty-lite" v-if="!requestRows.length">暂无采购申请</view>
+			<view class="empty-lite" v-if="!requestRows.length && !syncing">暂无采购申请</view>
 			<view class="summary-card" v-for="r in requestRows" :key="r._id">
 				<view class="row-between">
 					<view class="col flex1">
@@ -223,9 +225,10 @@ import { db } from '@/store/db.js'
 import { T, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
-import { isPurchaseManager, refreshPurchaseRequestStatus, requestStatusLabel, startOfToday, PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
+import { isPurchaseManager, refreshPurchaseRequestStatus, requestStatusLabel, PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
 import { notifyPurchaseManagers } from '@/utils/message.js'
 import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, unitFactor } from '@/utils/units.js'
+import { refreshRemoteSync } from '@/store/sync.js'
 
 export default {
 	data() {
@@ -236,6 +239,8 @@ export default {
 			draftItems: [],
 			requestRows: [],
 			requestItemMap: {},
+			syncing: false,
+			syncFailed: false,
 			employees: [],
 			employeeKw: '',
 			showEmployeePicker: false,
@@ -281,12 +286,23 @@ export default {
 	},
 	onShow() {
 		uni.setNavigationBarTitle({ title: '采购申请' })
+		this.session = getSession() || {}
 		if (this.session.id) {
 			this.managerMode = isPurchaseManager(this.session)
 			this.loadRequests()
+			this.refreshData()
 		}
 	},
 	methods: {
+		async refreshData() {
+			this.syncing = true
+			try {
+				this.syncFailed = !(await refreshRemoteSync())
+			} finally {
+				this.syncing = false
+				this.loadRequests()
+			}
+		},
 		fmt(t) { return fmtDate(t, true) },
 		money(n) { return fmtMoney(n) },
 		defaultSalePrice(row = {}) {
@@ -594,10 +610,8 @@ export default {
 		loadRequests() {
 			let rows = db.list(T.PURCHASE_REQUEST, null, 'createTime', true)
 			if (this.managerMode) {
-				const today = startOfToday()
 				rows = rows.filter((r) => {
-					return (r.createTime || 0) >= today &&
-						![PURCHASE_REQUEST_STATUS.CONVERTED, PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(r.status)
+					return ![PURCHASE_REQUEST_STATUS.CONVERTED, PURCHASE_REQUEST_STATUS.CLOSED, PURCHASE_REQUEST_STATUS.WITHDRAWN].includes(r.status)
 				})
 			} else {
 				rows = rows.filter((r) => r.employeeId === this.session.id && r.status === PURCHASE_REQUEST_STATUS.PENDING)
@@ -806,6 +820,8 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.sync-notice { padding: 12rpx 24rpx; background: #eff6ff; color: #2563eb; font-size: 23rpx; text-align: center; }
+.sync-error { background: #fff7ed; color: #c2410c; }
 .picker-text { min-height: 58rpx; line-height: 1.4; white-space: normal; word-break: break-all; }
 .quote-import-bar { display: flex; flex-direction: row; align-items: center; gap: 18rpx; margin-top: 22rpx; padding: 18rpx; border: 1rpx solid #dbeafe; border-radius: 14rpx; background: #f8fbff; }
 .quote-pick-meta { align-items: flex-end; flex: none; }

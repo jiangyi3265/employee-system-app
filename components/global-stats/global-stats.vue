@@ -40,7 +40,11 @@ export default {
 		}
 	},
 	mounted() {
+		if (typeof uni.$on === 'function') uni.$on('sqms:synced', this.load)
 		this.load()
+	},
+	beforeUnmount() {
+		if (typeof uni.$off === 'function') uni.$off('sqms:synced', this.load)
 	},
 	methods: {
 		money(n) { return fmtMoney(n) },

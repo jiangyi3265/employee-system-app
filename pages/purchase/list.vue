@@ -1,6 +1,8 @@
 <template>
 	<view class="page">
 		<global-stats />
+		<view class="sync-notice" v-if="syncing">正在更新服务器数据…</view>
+		<view class="sync-notice sync-error" v-else-if="syncFailed" @click="refreshData">同步失败，当前为本机缓存 · 点击重试</view>
 		<view class="sub-hero">
 			<text class="sub-hero-title">{{ pageTitle }}</text>
 			<text class="sub-hero-desc">{{ pageDesc }}</text>
@@ -27,7 +29,7 @@
 			<text class="inline-action" @click="clearFilters">重置</text>
 		</view>
 
-		<view class="sub-empty" v-if="!list.length">{{ emptyText }}</view>
+		<view class="sub-empty" v-if="!list.length && !syncing">{{ emptyText }}</view>
 
 		<view class="list-card order" v-for="o in list" :key="o._id" @click="go(o._id)">
 			<view class="row-between">
@@ -54,15 +56,16 @@ import { T } from '@/store/schema.js'
 import { fmtDate, fmtMoney, confirmDialog, toast } from '@/utils/format.js'
 import { getSession } from '@/utils/auth.js'
 import { isPurchaseManager, PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
+import { refreshRemoteSync } from '@/store/sync.js'
 
 export default {
-	data() { return { list: [], all: [], kw: '', suppliers: [], supplierId: '', supplierName: '', startDate: '', endDate: '', session: {}, managerMode: false, statusFilter: '' } },
+	data() { return { list: [], all: [], kw: '', suppliers: [], supplierId: '', supplierName: '', startDate: '', endDate: '', session: {}, managerMode: false, statusFilter: '', syncing: false, syncFailed: false } },
 	computed: {
 		pageTitle() { return this.statusFilter === 'pre' ? '预采购单' : '采购管理' },
 		pageDesc() {
 			return this.statusFilter === 'pre'
 				? '查看已生成的预采购单和已采购记录，关掉小程序后也能继续处理'
-				: '按供应商和时间追踪正式采购订单，便于同步产品成本'
+				: (this.managerMode ? '查看所有员工的采购订单，按供应商和时间追踪成本' : '按供应商和时间追踪自己的采购订单')
 		},
 		emptyText() {
 			return this.statusFilter === 'pre' ? '暂无预采购单，请先在采购申请中生成预采购单' : '暂无采购订单，点击右下角新增采购'
@@ -83,8 +86,18 @@ export default {
 		this.session = s
 		this.managerMode = isPurchaseManager(s)
 		this.load()
+		this.refreshData()
 	},
 	methods: {
+		async refreshData() {
+			this.syncing = true
+			try {
+				this.syncFailed = !(await refreshRemoteSync())
+			} finally {
+				this.syncing = false
+				this.load()
+			}
+		},
 		fmt(t) { return fmtDate(t, true) },
 		money(n) { return fmtMoney(n) },
 		itemCount(orderId) { return db.count(T.PURCHASE_ITEM, { purchaseOrderId: orderId }) },
@@ -163,6 +176,8 @@ export default {
 
 <style lang="scss" scoped>
 .order:active { transform: scale(0.995); }
+.sync-notice { padding: 12rpx 24rpx; background: #eff6ff; color: #2563eb; font-size: 23rpx; text-align: center; }
+.sync-error { background: #fff7ed; color: #c2410c; }
 .filter-bar { display: flex; flex-direction: row; align-items: center; gap: 12rpx; padding: 0 24rpx 20rpx; background: #fff; flex-wrap: wrap; }
 .filter-chip { background: #f3f6fb; border: 1rpx solid #e8edf5; border-radius: 999rpx; padding: 12rpx 18rpx; font-size: 24rpx; color: #4b5563; }
 </style>

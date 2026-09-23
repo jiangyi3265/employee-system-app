@@ -21,6 +21,7 @@ function stripWechatFields(table, rows) {
 let enabled = false
 let timer = null
 let flushPromise = null
+let refreshPromise = null
 let activeBatch = null
 let pendingHydrated = false
 const dirtyUpserts = new Map()
@@ -44,12 +45,10 @@ export async function syncFromRemote() {
 		return count + (Array.isArray(data[table]) ? data[table].length : 0)
 	}, 0)
 	if (remoteCount === 0) {
-		TABLES.forEach((table) => {
-			db.setAll(table, [], true)
-		})
-		uni.setStorageSync(LAST_PULL_KEY, data.serverTime || Date.now())
-		return data
+		throw new Error('服务器返回空数据，已保留本机记录')
 	}
+	// 网络请求期间仍可能发生录入或上传；在覆盖缓存前捕获最新的待同步记录。
+	const pendingLocalState = capturePendingLocalState()
 	TABLES.forEach((table) => {
 		if (Array.isArray(data[table])) {
 			if (PRESERVE_WHEN_REMOTE_EMPTY.has(table) && data[table].length === 0 && db.count(table) > 0) {
@@ -59,6 +58,7 @@ export async function syncFromRemote() {
 			db.setAll(table, data[table], true)
 		}
 	})
+	reapplyPendingLocalState(pendingLocalState)
 	data.__preservedTables = preservedTables
 	uni.setStorageSync(LAST_PULL_KEY, data.serverTime || Date.now())
 	return data
@@ -150,11 +150,12 @@ function hydratePendingChanges() {
 function capturePendingLocalState() {
 	const tables = {}
 	const deletions = {}
-	dirtyUpserts.forEach((ids, table) => {
+	const pending = pendingIdMaps()
+	pending.upserts.forEach((ids, table) => {
 		const rows = Array.from(ids).map((id) => db.get(table, id)).filter(Boolean)
 		if (rows.length) tables[table] = rows
 	})
-	dirtyDeletions.forEach((ids, table) => {
+	pending.deletions.forEach((ids, table) => {
 		if (ids.size) deletions[table] = Array.from(ids)
 	})
 	return { tables, deletions }
@@ -265,20 +266,22 @@ export function flushDirtyTables() {
 	return flushPromise
 }
 
-export async function bootstrapRemoteSync() {
+async function runRemoteSync() {
 	hydratePendingChanges()
-	const pendingLocalState = capturePendingLocalState()
+	// 启动拉取尚未结束时也要追踪新录入，不能漏掉这段时间的修改。
+	enableRemoteSync(true)
 	try {
 		const data = await syncFromRemote()
-		reapplyPendingLocalState(pendingLocalState)
-		enableRemoteSync(true)
 		const remoteCount = TABLES.reduce((count, table) => {
 			return count + (Array.isArray(data[table]) ? data[table].length : 0)
 		}, 0)
 		if (remoteCount > 0 && data.__preservedTables && Object.keys(data.__preservedTables).length) {
 			await pushTables(data.__preservedTables)
 		}
+		if (flushPromise) await flushPromise
 		if (hasPendingChanges()) await flushDirtyTables()
+		if (hasPendingChanges()) throw new Error('本机修改尚未上传服务器')
+		if (typeof uni.$emit === 'function') uni.$emit('sqms:synced')
 		return true
 	} catch (e) {
 		console.warn('SQMS remote unavailable, using local data:', e && e.message ? e.message : e)
@@ -287,4 +290,14 @@ export async function bootstrapRemoteSync() {
 		if (hasPendingChanges()) scheduleFlush()
 		return false
 	}
+}
+
+export function refreshRemoteSync() {
+	if (refreshPromise) return refreshPromise
+	refreshPromise = runRemoteSync().finally(() => { refreshPromise = null })
+	return refreshPromise
+}
+
+export function bootstrapRemoteSync() {
+	return refreshRemoteSync()
 }
