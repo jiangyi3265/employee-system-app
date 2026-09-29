@@ -1,5 +1,7 @@
 <template>
 	<view class="page">
+		<view class="sync-notice" v-if="syncing">正在同步报价明细…</view>
+		<view class="sync-notice sync-error" v-else-if="saveError">{{ saveError }}</view>
 		<global-stats />
 		<!-- 订单基本信息 -->
 		<view class="card">
@@ -42,14 +44,14 @@
 				<view class="row-between mt-s">
 					<view class="row gap-s">
 						<text class="t-sub">数量</text>
-						<input class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" />
+						<input class="mini-ipt" type="digit" v-model="it.qty" @input="edited = true" @blur="saveItem(it)" />
 						<picker :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it)">
 							<text class="inline-action">{{ it.unit || '个' }}⌄</text>
 						</picker>
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">单价</text>
-						<input class="mini-ipt" type="digit" v-model="it.price" @blur="saveItem(it)" />
+						<input class="mini-ipt" type="digit" v-model="it.price" @input="edited = true" @blur="saveItem(it)" />
 					</view>
 				</view>
 				<view class="row-between mt-s">
@@ -102,7 +104,7 @@
 
 		<!-- 操作按钮 -->
 		<view style="margin: 30rpx 24rpx;">
-			<button class="btn btn-block" @click="saveOrder">{{ saveText }}</button>
+			<button class="btn btn-block" :disabled="saving || syncing" :loading="saving" @click="saveOrder">{{ saving ? '正在保存到服务器…' : saveText }}</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id" @click="goExport">导出报价单</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id && donePurchaseItemCount" @click="goPurchaseRequestFromOrder">{{ purchaseConvertibleCount ? '生成采购申请单' : '查看采购申请单' }}</button>
 			<button class="btn btn-danger btn-block mt-m" v-if="id" @click="removeOrder">删除报价单</button>
@@ -128,17 +130,22 @@ import { db } from '@/store/db.js'
 import { T, DEAL_STATUS, DEAL_STATUS_LABEL, ROLE } from '@/store/schema.js'
 import { getSession } from '@/utils/auth.js'
 import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
-import { refreshOrderDealStatus, refreshCustomerOwner, orderFinance } from '@/utils/stats.js'
+import { refreshOrderDealStatus, refreshCustomerOwner } from '@/utils/stats.js'
 import { profitRate, quoteAuditPatch, isQuotableQuoteItem } from '@/utils/pricing.js'
 import { addOrderFollow, addOrderSystemFollow, followActor, orderFollows } from '@/utils/follow.js'
 import { notifyAdmins, notifyPurchaseManagers, sendToUser } from '@/utils/message.js'
 import { PURCHASE_REQUEST_STATUS, refreshPurchaseRequestStatus } from '@/utils/purchase.js'
 import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, unitFactor } from '@/utils/units.js'
+import { refreshRemoteSync, saveRemoteChanges, getLastSyncError } from '@/store/sync.js'
 
 export default {
 	data() {
 		return {
 			id: '',
+			saving: false,
+			syncing: false,
+			saveError: '',
+			edited: false,
 			form: { customerId: '', customerName: '', employeeId: '', employeeName: '', dealStatus: 'pending' },
 			items: [],
 			follows: [],
@@ -177,8 +184,8 @@ export default {
 			return this.items.filter((it) => it.status === 'done' && it._id && !String(it._id).startsWith('tmp_')).length
 		},
 		finance() {
-			if (this.id) return orderFinance(this.id, this.form.dealStatus !== DEAL_STATUS.PENDING)
-			const rows = this.items.filter(isQuotableQuoteItem)
+			let rows = this.items.filter(isQuotableQuoteItem)
+			if (this.form.dealStatus !== DEAL_STATUS.PENDING) rows = rows.filter((it) => it.status === 'done')
 			const amount = rows.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0)
 			const cost = rows.reduce((s, it) => s + (Number(it.costPrice) || 0) * (Number(it.qty) || 0), 0)
 			const profit = Math.round((amount - cost) * 100) / 100
@@ -205,6 +212,7 @@ export default {
 			this.loadConvertedPurchaseItemIds()
 			this.loadFollows()
 			uni.setNavigationBarTitle({ title: '编辑报价单' })
+			this.refreshData()
 		} else {
 			this.form.employeeId = s.id
 			this.form.employeeName = s.name
@@ -215,6 +223,25 @@ export default {
 		if (this.id) this.loadConvertedPurchaseItemIds()
 	},
 	methods: {
+		async refreshData() {
+			this.syncing = true
+			try {
+				if (!(await refreshRemoteSync())) {
+					this.saveError = '同步未完成：' + getLastSyncError()
+					return
+				}
+				if (!this.edited) {
+					const order = db.get(T.QUOTE_ORDER, this.id)
+					if (order) this.form = { ...this.form, ...order }
+					this.items = db.list(T.QUOTE_ITEM, { orderId: this.id })
+				}
+				this.loadFollows()
+				this.loadConvertedPurchaseItemIds()
+				this.saveError = ''
+			} finally {
+				this.syncing = false
+			}
+		},
 		fmt(t) { return fmtDate(t, true) },
 		money(n) { return fmtMoney(n) },
 		actor(f) { return followActor(f) },
@@ -256,6 +283,7 @@ export default {
 			}
 		},
 		selectCustomer(c) {
+			this.edited = true
 			this.form.customerId = c._id
 			this.form.customerName = c.name
 			this.showCustPicker = false
@@ -265,6 +293,7 @@ export default {
 			uni.navigateTo({ url: '/pages/quote/select' + this.buildSelectQuery() })
 		},
 		addProduct(p, recPrice) {
+			this.edited = true
 			const exists = this.items.find((it) => it.productId === p._id)
 			if (exists) { toast('该产品已添加'); return }
 			const price = Number(recPrice) || Number(p.suggestPrice) || 0
@@ -296,6 +325,7 @@ export default {
 			return profitRate(Number(it.price) || 0, Number(it.costPrice) || 0)
 		},
 		saveItem(it) {
+			this.edited = true
 			const product = db.get(T.PRODUCT, it.productId) || {}
 			const old = it._id && !String(it._id).startsWith('tmp_') ? db.get(T.QUOTE_ITEM, it._id) : null
 			const price = Number(it.price) || 0
@@ -316,7 +346,6 @@ export default {
 					if (patch.needsAdminReview && !old.needsAdminReview) {
 						addOrderSystemFollow(this.id, `${this.session.name} 提交低价审核：${it.productName} 报价 ${fmtMoney(patch.price)}，低于最低销售价 ${fmtMoney(patch.minPriceSnapshot)}`, this.session)
 					}
-					this.loadFollows()
 				}
 				if (patch.needsAdminReview && (!old || !old.needsAdminReview || Number(old.price) !== patch.price)) {
 					this.notifySpecialPrice(it)
@@ -324,6 +353,7 @@ export default {
 			}
 		},
 		toggleDeal(it) {
+			this.edited = true
 			if (it.needsAdminReview) return toast('低价报价需管理员审核通过后才能成交')
 			const newStatus = it.status === 'done' ? 'pending' : 'done'
 			const oldStatus = it.status
@@ -339,6 +369,7 @@ export default {
 			}
 		},
 		removeItem(it, i) {
+			this.edited = true
 			if (it._id && !String(it._id).startsWith('tmp_')) db.remove(T.QUOTE_ITEM, it._id)
 			this.items.splice(i, 1)
 			refreshOrderDealStatus(this.id)
@@ -349,9 +380,15 @@ export default {
 				this.loadFollows()
 			}
 		},
-		saveOrder() {
+		async saveOrder() {
+			if (this.saving || this.syncing) return
 			if (!this.form.customerId) return toast('请选择客户')
 			if (!this.items.length) return toast('请至少添加一个商品')
+			this.saving = true
+			this.saveError = ''
+			try {
+			this.items.forEach((item) => this.saveItem(item))
+			const isNew = !this.id
 			if (this.id) {
 				const old = db.get(T.QUOTE_ORDER, this.id)
 				db.update(T.QUOTE_ORDER, this.id, {
@@ -370,28 +407,41 @@ export default {
 					dealStatus: 'pending'
 				})
 				this.id = o._id
-				this.items = this.items.map((it) => {
+			}
+			this.items.forEach((it) => {
+				if (!it._id || String(it._id).startsWith('tmp_')) {
 					const item = db.insert(T.QUOTE_ITEM, {
 						...it,
 						_id: undefined,
-						orderId: o._id,
+						orderId: this.id,
 						employeeId: this.form.employeeId,
 						customerId: this.form.customerId
 					})
+					Object.assign(it, item)
 					this.notifySpecialPrice(item)
 					if (item.needsAdminReview) {
-						addOrderSystemFollow(o._id, `${this.form.employeeName} 提交低价审核：${item.productName} 报价 ${fmtMoney(item.price)}，低于最低销售价 ${fmtMoney(item.minPriceSnapshot)}`, this.session)
+						addOrderSystemFollow(this.id, `${this.form.employeeName} 提交低价审核：${item.productName} 报价 ${fmtMoney(item.price)}，低于最低销售价 ${fmtMoney(item.minPriceSnapshot)}`, this.session)
 					}
-					return item
-				})
-				addOrderSystemFollow(o._id, `${this.form.employeeName} 生成报价单，商品 ${this.items.length} 项，报价金额 ${fmtMoney(this.totalAmount)}`, this.session)
-				const status = refreshOrderDealStatus(o._id)
-				if (status) this.form.dealStatus = status
-				refreshCustomerOwner(this.form.customerId)
+				} else {
+					db.update(T.QUOTE_ITEM, it._id, { customerId: this.form.customerId, employeeId: this.form.employeeId, orderId: this.id })
+				}
+			})
+			if (isNew) {
+				addOrderSystemFollow(this.id, `${this.form.employeeName} 生成报价单，商品 ${this.items.length} 项，报价金额 ${fmtMoney(this.totalAmount)}`, this.session)
 			}
+			const status = refreshOrderDealStatus(this.id)
+			if (status) this.form.dealStatus = status
+			refreshCustomerOwner(this.form.customerId)
 			this.loadFollows()
 			const completedRequest = this.completeSourceRequestIfReady()
-			toast(this.pendingReviewCount ? '已保存，低价项待管理员审核' : (completedRequest ? '已保存，客户申请已通过' : '已保存'), 'success')
+			await saveRemoteChanges()
+			toast(this.pendingReviewCount ? '已同步服务器，低价项待审核' : (completedRequest ? '已同步服务器，客户申请已通过' : '已保存到服务器'), 'success')
+			} catch (error) {
+				this.saveError = '保存尚未完成，请勿清理缓存，点击保存重试：' + error.message
+				toast('尚未保存到服务器，请重试')
+			} finally {
+				this.saving = false
+			}
 		},
 		loadFollows() {
 			if (!this.id) return
@@ -407,9 +457,10 @@ export default {
 				.map((item) => item.sourceQuoteItemId)
 				.filter(Boolean)
 		},
-		submitFollow() {
+		async submitFollow() {
 			const content = this.followText.trim()
 			if (!content) return toast('请输入跟进内容')
+			try {
 			addOrderFollow({
 				employeeId: this.session.id,
 				employeeName: this.session.name,
@@ -421,7 +472,12 @@ export default {
 			this.followText = ''
 			this.showFollowForm = false
 			this.loadFollows()
-			toast('已添加跟进', 'success')
+			await saveRemoteChanges()
+			toast('跟进已保存到服务器', 'success')
+			} catch (error) {
+				this.saveError = '跟进保存尚未完成，请重试：' + error.message
+				toast('跟进尚未保存到服务器')
+			}
 		},
 		auditPrice(price, product, unit, factor) {
 			const audit = quoteAuditPatch(price, product, unit, factor)
@@ -601,6 +657,8 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.sync-notice { padding: 16rpx 24rpx; background: #eff6ff; color: #2563eb; font-size: 24rpx; }
+.sync-error { background: #fff7ed; color: #c2410c; }
 .item-row { padding: 20rpx 0; border-bottom: 1rpx solid #f0f1f4; }
 .item-row:last-child { border-bottom: none; }
 .product-link { color: #2563eb; }

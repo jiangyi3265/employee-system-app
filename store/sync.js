@@ -1,6 +1,7 @@
 import { db, setWriteListener } from './db.js'
 import { T } from './schema.js'
 import { pullAll, pushTables } from './remote.js'
+import { readStoredValue, writeStoredValue, removeStoredValue } from './storage.js'
 
 const TABLES = Object.values(T)
 const LAST_PULL_KEY = 'sqms_last_pull_time'
@@ -24,10 +25,28 @@ let flushPromise = null
 let refreshPromise = null
 let activeBatch = null
 let pendingHydrated = false
+let syncQueue = Promise.resolve()
+let lastSyncError = ''
+let retryDelay = 500
 const dirtyUpserts = new Map()
 const dirtyDeletions = new Map()
 
 setWriteListener(markDirty)
+
+function enqueueSync(operation) {
+	const result = syncQueue.then(operation)
+	syncQueue = result.catch(() => {})
+	return result
+}
+
+export function getLastSyncError() {
+	return lastSyncError
+}
+
+function rememberError(error) {
+	lastSyncError = (error && (error.message || error.errMsg)) || '网络连接失败，请重试'
+	console.warn('SQMS sync failed:', lastSyncError)
+}
 
 export function enableRemoteSync(value = true) {
 	enabled = value
@@ -55,10 +74,13 @@ export async function syncFromRemote() {
 				preservedTables[table] = stripWechatFields(table, db.list(table))
 				return
 			}
-			db.setAll(table, data[table], true)
+			// Merge pending edits BEFORE writing the cache, so even a storage failure cannot erase them.
+			const rowsById = new Map(data[table].map((row) => [row._id, row]))
+			;(pendingLocalState.deletions[table] || []).forEach((id) => rowsById.delete(id))
+			;(pendingLocalState.tables[table] || []).forEach((row) => rowsById.set(row._id, row))
+			db.setAll(table, Array.from(rowsById.values()), true)
 		}
 	})
-	reapplyPendingLocalState(pendingLocalState)
 	data.__preservedTables = preservedTables
 	uni.setStorageSync(LAST_PULL_KEY, data.serverTime || Date.now())
 	return data
@@ -129,22 +151,22 @@ function persistPendingChanges() {
 		deletions: mapToObject(pending.deletions)
 	}
 	if (!Object.keys(payload.upserts).length && !Object.keys(payload.deletions).length) {
-		uni.removeStorageSync(PENDING_SYNC_KEY)
+		removeStoredValue(PENDING_SYNC_KEY)
 		return
 	}
-	uni.setStorageSync(PENDING_SYNC_KEY, payload)
+	writeStoredValue(PENDING_SYNC_KEY, payload)
 }
 
 function hydratePendingChanges() {
 	if (pendingHydrated) return
-	pendingHydrated = true
-	const saved = uni.getStorageSync(PENDING_SYNC_KEY) || {}
+	const saved = readStoredValue(PENDING_SYNC_KEY) || {}
 	Object.entries(saved.deletions || {}).forEach(([table, ids]) => {
 		applyIds(dirtyUpserts, dirtyDeletions, table, [], Array.isArray(ids) ? ids : [])
 	})
 	Object.entries(saved.upserts || {}).forEach(([table, ids]) => {
 		applyIds(dirtyUpserts, dirtyDeletions, table, Array.isArray(ids) ? ids : [], [])
 	})
+	pendingHydrated = true
 }
 
 function capturePendingLocalState() {
@@ -161,31 +183,17 @@ function capturePendingLocalState() {
 	return { tables, deletions }
 }
 
-function reapplyPendingLocalState(batch) {
-	const tableNames = new Set([
-		...Object.keys(batch.tables || {}),
-		...Object.keys(batch.deletions || {})
-	])
-	tableNames.forEach((table) => {
-		const rowsById = new Map(db.list(table).map((row) => [row._id, row]))
-		;(batch.deletions[table] || []).forEach((id) => rowsById.delete(id))
-		;(batch.tables[table] || []).forEach((row) => {
-			if (row && row._id) rowsById.set(row._id, row)
-		})
-		db.setAll(table, Array.from(rowsById.values()), true)
-	})
-}
-
 function scheduleFlush() {
 	if (timer) clearTimeout(timer)
 	timer = setTimeout(() => {
 		timer = null
 		flushDirtyTables()
-	}, 500)
+	}, retryDelay)
 }
 
 export function markDirty(table, mutation = null) {
 	if (!enabled || !table) return
+	hydratePendingChanges()
 	const upsertIds = mutation && Array.isArray(mutation.upsertIds)
 		? mutation.upsertIds
 		: db.list(table).map((row) => row && row._id).filter(Boolean)
@@ -205,8 +213,9 @@ export function markDirty(table, mutation = null) {
 	})
 	if (!upserts.size) dirtyUpserts.delete(table)
 	if (!deletions.size) dirtyDeletions.delete(table)
-	persistPendingChanges()
+	retryDelay = 500
 	scheduleFlush()
+	persistPendingChanges()
 }
 
 function takePendingChanges() {
@@ -248,29 +257,56 @@ async function flushPendingChanges() {
 		await pushTables(batch.tables, batch.deletions)
 		activeBatch = null
 		persistPendingChanges()
+		lastSyncError = ''
+		retryDelay = 500
+		return true
 	} catch (e) {
 		activeBatch = null
 		restorePendingChanges(batch)
 		persistPendingChanges()
-		console.warn('SQMS sync failed:', e && e.message ? e.message : e)
+		rememberError(e)
+		retryDelay = Math.min(retryDelay * 2, 30000)
+		return false
+	}
+}
+
+async function drainPendingChanges() {
+	if (timer) { clearTimeout(timer); timer = null }
+	try {
+		hydratePendingChanges()
+		while (hasPendingChanges()) {
+			if (!(await flushPendingChanges())) return false
+		}
+		return true
+	} catch (error) {
+		rememberError(error)
+		retryDelay = Math.min(retryDelay * 2, 30000)
+		return false
 	} finally {
-		flushPromise = null
 		if (hasPendingChanges()) scheduleFlush()
 	}
 }
 
 export function flushDirtyTables() {
 	if (flushPromise) return flushPromise
-	if (!hasPendingChanges()) return Promise.resolve()
-	flushPromise = flushPendingChanges()
+	// Serialize pushes and pulls: a delayed pull must not replace a just-acknowledged edit.
+	flushPromise = enqueueSync(drainPendingChanges).finally(() => { flushPromise = null })
 	return flushPromise
 }
 
+export async function saveRemoteChanges() {
+	if (!(await flushDirtyTables())) throw new Error(lastSyncError || '尚未写入服务器，请重试')
+	if (typeof uni.$emit === 'function') uni.$emit('sqms:synced')
+	return true
+}
+
 async function runRemoteSync() {
-	hydratePendingChanges()
 	// 启动拉取尚未结束时也要追踪新录入，不能漏掉这段时间的修改。
 	enableRemoteSync(true)
 	try {
+		hydratePendingChanges()
+		// Saving is independent of downloading the cache. A failed pull must not block uploads.
+		if (!(await drainPendingChanges())) return false
 		const data = await syncFromRemote()
 		const remoteCount = TABLES.reduce((count, table) => {
 			return count + (Array.isArray(data[table]) ? data[table].length : 0)
@@ -278,15 +314,14 @@ async function runRemoteSync() {
 		if (remoteCount > 0 && data.__preservedTables && Object.keys(data.__preservedTables).length) {
 			await pushTables(data.__preservedTables)
 		}
-		if (flushPromise) await flushPromise
-		if (hasPendingChanges()) await flushDirtyTables()
-		if (hasPendingChanges()) throw new Error('本机修改尚未上传服务器')
+		if (!(await drainPendingChanges())) return false
+		lastSyncError = ''
 		if (typeof uni.$emit === 'function') uni.$emit('sqms:synced')
 		return true
 	} catch (e) {
-		console.warn('SQMS remote unavailable, using local data:', e && e.message ? e.message : e)
+		rememberError(e)
 		enableRemoteSync(true)
-		persistPendingChanges()
+		try { persistPendingChanges() } catch (storageError) { rememberError(storageError) }
 		if (hasPendingChanges()) scheduleFlush()
 		return false
 	}
@@ -294,7 +329,7 @@ async function runRemoteSync() {
 
 export function refreshRemoteSync() {
 	if (refreshPromise) return refreshPromise
-	refreshPromise = runRemoteSync().finally(() => { refreshPromise = null })
+	refreshPromise = enqueueSync(runRemoteSync).finally(() => { refreshPromise = null })
 	return refreshPromise
 }
 

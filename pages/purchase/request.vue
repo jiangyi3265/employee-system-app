@@ -3,6 +3,7 @@
 		<global-stats />
 		<view class="sync-notice" v-if="syncing">正在更新服务器数据…</view>
 		<view class="sync-notice sync-error" v-else-if="syncFailed" @click="refreshData">同步失败，当前为本机缓存 · 点击重试</view>
+		<view class="sync-notice sync-error" v-if="saveError">{{ saveError }}</view>
 		<view class="sub-hero">
 			<text class="sub-hero-title">采购申请</text>
 			<text class="sub-hero-desc">{{ managerMode ? '查看所有员工未完成的采购需求，按供货商合并预采购单' : '提交自己的采购需求，采购员和管理员会统一处理' }}</text>
@@ -75,7 +76,7 @@
 					<text class="inline-action" @click="openSupplierPicker('draftItem', it)">选择供货商</text>
 				</view>
 			</view>
-			<button class="btn btn-block mt-m" @click="saveRequest">保存采购申请</button>
+			<button class="btn btn-block mt-m" :disabled="saving" :loading="saving" @click="saveRequest">{{ saving ? '正在保存到服务器…' : '保存采购申请' }}</button>
 		</view>
 
 		<view class="card">
@@ -228,7 +229,7 @@ import { fmtDate, fmtMoney, toast, confirmDialog } from '@/utils/format.js'
 import { isPurchaseManager, mergePurchaseItemRows, refreshPurchaseRequestStatus, requestStatusLabel, PURCHASE_REQUEST_STATUS } from '@/utils/purchase.js'
 import { notifyPurchaseManagers } from '@/utils/message.js'
 import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, unitFactor } from '@/utils/units.js'
-import { refreshRemoteSync } from '@/store/sync.js'
+import { refreshRemoteSync, saveRemoteChanges } from '@/store/sync.js'
 
 export default {
 	data() {
@@ -241,6 +242,8 @@ export default {
 			requestItemMap: {},
 			syncing: false,
 			syncFailed: false,
+			saving: false,
+			saveError: '',
 			employees: [],
 			employeeKw: '',
 			showEmployeePicker: false,
@@ -401,7 +404,7 @@ export default {
 			if (this.draftItems.length && !(await confirmDialog('导入报价单会替换当前未保存明细，确定继续？'))) return
 			this.loadFromQuote(order._id)
 			this.showQuotePicker = false
-			if (this.draftItems.length) this.saveRequest()
+			if (this.draftItems.length) await this.saveRequest()
 		},
 		openEmployeePicker() {
 			this.employeeKw = ''
@@ -536,11 +539,15 @@ export default {
 			}
 			this.draftItems.splice(index, 1)
 		},
-		saveRequest() {
+		async saveRequest() {
+			if (this.saving) return
 			if (this.managerMode && !this.form.employeeId) return toast('请选择申请员工')
 			if (!this.form.customerId) return toast('请选择需求客户')
 			if (!this.draftItems.length) return toast('请添加采购商品')
 			if (!this.validatePurchaseRows(this.draftItems)) return
+			this.saving = true
+			this.saveError = ''
+			try {
 			let requestId = this.form._id
 			const isNewRequest = !requestId
 			const base = {
@@ -601,7 +608,14 @@ export default {
 				)
 			}
 			this.loadRequests()
-			toast('采购申请已保存', 'success')
+			await saveRemoteChanges()
+			toast('采购申请已保存到服务器', 'success')
+			} catch (error) {
+				this.saveError = '保存尚未完成，请勿清理缓存，点击保存重试：' + error.message
+				toast('尚未保存到服务器，请重试')
+			} finally {
+				this.saving = false
+			}
 		},
 		loadRequests() {
 			let rows = db.list(T.PURCHASE_REQUEST, null, 'createTime', true)
@@ -684,9 +698,10 @@ export default {
 			this.editRequest(r)
 			this.openProductPicker()
 		},
-		saveRequestItemInline(it) {
+		async saveRequestItemInline(it) {
 			if (!it || !it._id) return
 			if (!this.validatePurchaseCost(it)) return
+			try {
 			db.update(T.PURCHASE_REQUEST_ITEM, it._id, {
 				qty: Number(it.qty) || 1,
 				purchasePrice: Number(it.purchasePrice) || 0,
@@ -696,7 +711,13 @@ export default {
 				supplierId: it.supplierId || '',
 				supplierName: it.supplierName || ''
 			})
-			toast('明细已更新', 'success')
+			await saveRemoteChanges()
+			this.saveError = ''
+			toast('明细已保存到服务器', 'success')
+			} catch (error) {
+				this.saveError = '明细尚未同步，点击保存重试：' + error.message
+				toast('明细尚未保存到服务器')
+			}
 		},
 		async removeSavedItem(it) {
 			if (!it || !it._id) return
@@ -713,7 +734,7 @@ export default {
 			}
 			toast('采购申请明细已删除', 'success')
 		},
-		generatePrePurchase() {
+		async generatePrePurchase() {
 			if (!this.managerMode) return toast('无权生成预采购单')
 			const rows = []
 			this.requestRows.forEach((r) => {
@@ -781,8 +802,15 @@ export default {
 			})
 			this.requestRows.forEach((r) => refreshPurchaseRequestStatus(r._id))
 			this.loadRequests()
-			toast(`已生成 ${created.length} 张预采购单`, 'success')
-			if (created[0]) setTimeout(() => uni.navigateTo({ url: '/pages/purchase/detail?id=' + created[0]._id }), 350)
+			try {
+				await saveRemoteChanges()
+				toast(`${created.length} 张预采购单已保存到服务器`, 'success')
+				if (created[0]) setTimeout(() => uni.navigateTo({ url: '/pages/purchase/detail?id=' + created[0]._id }), 350)
+			} catch (error) {
+				this.saveError = '预采购单尚未同步，请点击顶部重试：' + error.message
+				this.syncFailed = true
+				toast('预采购单尚未保存到服务器')
+			}
 		},
 		loadFromQuote(orderId) {
 			const order = db.get(T.QUOTE_ORDER, orderId)

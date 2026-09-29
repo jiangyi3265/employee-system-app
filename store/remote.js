@@ -35,6 +35,7 @@ export function apiRequest(path, options = {}) {
 		uni.request({
 			url: getApiBase() + path,
 			method: options.method || 'GET',
+			timeout: 30000,
 			data: options.data || undefined,
 			header: {
 				'Content-Type': 'application/json',
@@ -42,10 +43,10 @@ export function apiRequest(path, options = {}) {
 			},
 			success: (res) => {
 				const data = res.data || {}
-				if (res.statusCode >= 200 && res.statusCode < 300 && (data.code == null || data.code === 200)) {
+				if (res.statusCode >= 200 && res.statusCode < 300 && typeof data === 'object' && data.code === 200) {
 					resolve(data)
 				} else {
-					const error = new Error(data.msg || `请求失败 ${res.statusCode}`)
+					const error = new Error(data.msg || `服务器未确认保存（HTTP ${res.statusCode}），请重试`)
 					error.isApiError = true
 					error.statusCode = res.statusCode
 					reject(error)

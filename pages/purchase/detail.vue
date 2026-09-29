@@ -1,5 +1,7 @@
 <template>
 	<view class="page">
+		<view class="sync-notice" v-if="syncing">正在同步采购明细…</view>
+		<view class="sync-notice sync-error" v-else-if="saveError">{{ saveError }}</view>
 		<global-stats v-if="!supplierView" />
 		<view class="card">
 			<text class="t-title mb-m">{{ preFlow ? '预采购单信息' : '采购订单信息' }}</text>
@@ -19,13 +21,13 @@
 			</view>
 			<view class="field">
 				<text class="field-label">运费</text>
-				<input class="field-input" type="digit" v-model="form.freight" placeholder="0" @blur="allocateFreight(true)" :disabled="supplierView || isStocked" />
+				<input class="field-input" type="digit" v-model="form.freight" placeholder="0" @input="edited = true" @blur="allocateFreight(true)" :disabled="supplierView || isStocked || syncing" />
 			</view>
 			<text class="t-muted mt-s">{{ preFlow ? '预采购单可先核价，采购入库后再同步产品成本。' : '保存采购明细后，可按单位换算数量自动分摊单件运费并同步产品成本。' }}</text>
 		</view>
 
 		<!-- 采购明细 -->
-		<view class="card" v-if="id">
+		<view class="card">
 			<view class="row-between mb-m">
 				<text class="t-title">采购明细</text>
 				<text class="t-primary" v-if="!supplierView && !isStocked" @click="addProductNav">+ 添加产品</text>
@@ -43,7 +45,7 @@
 				<view class="row-between mt-s">
 					<view class="row gap-s">
 						<text class="t-sub">数量</text>
-						<input class="mini-ipt" type="digit" v-model="it.qty" @blur="saveItem(it)" :disabled="isStocked" />
+						<input class="mini-ipt" type="digit" v-model="it.qty" @input="edited = true" @blur="saveItem(it)" :disabled="isStocked || syncing" />
 						<text class="t-sub" v-if="supplierView || isStocked">{{ it.unit || '个' }}</text>
 						<picker v-else :range="unitOptions(it)" range-key="label" @change="changeItemUnit($event, it)">
 							<view class="row unit-select"><text class="t-sub">单位</text><text class="inline-action">{{ it.unit || '个' }}</text></view>
@@ -51,21 +53,21 @@
 					</view>
 					<view class="row gap-s">
 						<text class="t-sub">采购价</text>
-						<input class="mini-ipt" type="digit" v-model="it.purchasePrice" @blur="saveItem(it)" :disabled="isStocked" />
+						<input class="mini-ipt" type="digit" v-model="it.purchasePrice" @input="edited = true" @blur="saveItem(it)" :disabled="isStocked || syncing" />
 					</view>
 				</view>
 				<text class="stock-preview" v-if="!supplierView">入库折算：{{ stockInLabel(it) }}</text>
 				<view class="row-between mt-s" v-if="!supplierView">
 					<view class="row gap-s">
 						<text class="t-sub">销售价</text>
-						<input class="mini-ipt" type="digit" v-model="it.salePrice" @blur="saveItem(it)" :disabled="isStocked" />
+						<input class="mini-ipt" type="digit" v-model="it.salePrice" @input="edited = true" @blur="saveItem(it)" :disabled="isStocked || syncing" />
 					</view>
 					<text class="t-sub">毛利空间：{{ money(grossMargin(it)) }}</text>
 				</view>
 				<view class="row-between mt-s" v-if="!supplierView">
 					<view class="row gap-s">
 						<text class="t-sub">分摊运费</text>
-						<input class="mini-ipt" type="digit" v-model="it.freightShare" @blur="saveItem(it)" :disabled="isStocked" />
+						<input class="mini-ipt" type="digit" v-model="it.freightShare" @input="edited = true" @blur="saveItem(it)" :disabled="isStocked || syncing" />
 					</view>
 					<text class="t-sub">小计：{{ money(it.qty * it.purchasePrice) }}</text>
 				</view>
@@ -78,7 +80,7 @@
 
 		<view style="margin: 30rpx 24rpx;" v-if="!supplierView">
 			<text class="stock-preview" v-if="isStocked">该采购单已入库；为避免库存重复计算，明细不可直接修改或删除。</text>
-			<button class="btn btn-block" v-if="!isStocked" @click="saveOrder">{{ preFlow ? '保存预采购单' : '保存采购单' }}</button>
+			<button class="btn btn-block" v-if="!isStocked" :disabled="saving || syncing" :loading="saving" @click="saveOrder">{{ saving ? '正在保存到服务器…' : (preFlow ? '保存预采购单' : '保存采购单') }}</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id && preFlow" @click="copyPrePurchaseList">复制采购清单</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id && preFlow" open-type="share">微信分享预采购单</button>
 			<button class="btn btn-ghost btn-block mt-m" v-if="id && isPrePurchase" @click="approvePrePurchase">审核预采购</button>
@@ -131,12 +133,16 @@ import { purchaseItemSourceItemIds, purchaseItemSourceRequestIds, PURCHASE_REQUE
 import { sendToUser } from '@/utils/message.js'
 import { convertRecordUnit, defaultUnit, fromBaseUnitPrice, productUnitOptions, toBaseUnitPrice, toBaseUnitQuantity, unitFactor } from '@/utils/units.js'
 import { stockInPurchaseRemote } from '@/store/remote.js'
-import { refreshRemoteSync } from '@/store/sync.js'
+import { refreshRemoteSync, saveRemoteChanges, getLastSyncError } from '@/store/sync.js'
 
 export default {
 	data() {
 		return {
 			id: '',
+			saving: false,
+			syncing: false,
+			saveError: '',
+			edited: false,
 			form: { supplierId: '', supplierName: '', employeeId: '', employeeName: '', freight: 0 },
 			items: [],
 			showSupPicker: false,
@@ -175,6 +181,7 @@ export default {
 		const routeId = this.routeValue('id', q)
 		if (routeId) {
 			this.loadOrder(routeId)
+			this.refreshData()
 		} else if (!this.supplierView) {
 			this.form.employeeId = s.id
 			this.form.employeeName = s.name
@@ -204,6 +211,17 @@ export default {
 		this.removeRouteSyncHandler()
 	},
 	methods: {
+		async refreshData() {
+			this.syncing = true
+			try {
+				if (await refreshRemoteSync()) {
+					if (!this.edited) this.loadOrder(this.id)
+					this.saveError = ''
+				} else this.saveError = '同步未完成：' + getLastSyncError()
+			} finally {
+				this.syncing = false
+			}
+		},
 		removeRouteSyncHandler() {
 			if (typeof window !== 'undefined' && this._routeSyncHandler) {
 				window.removeEventListener('hashchange', this._routeSyncHandler)
@@ -298,7 +316,7 @@ export default {
 				if (it.productName !== p.name) patch.productName = p.name
 				if (it.spec !== p.spec) patch.spec = p.spec
 				if (!Number(it.salePrice)) patch.salePrice = fromBaseUnitPrice(this.defaultSalePrice(p), p, unit, patch.unitFactor)
-				if (Object.keys(patch).length && it._id) {
+				if (Object.keys(patch).some((key) => patch[key] !== it[key]) && it._id) {
 					db.update(T.PURCHASE_ITEM, it._id, patch)
 					return { ...it, ...patch }
 				}
@@ -306,6 +324,7 @@ export default {
 			})
 		},
 		pickSupplier() {
+			if (this.syncing) return
 			if (this.supplierView || this.isStocked) return
 			this.supKw = ''
 			this.loadSuppliers()
@@ -329,6 +348,7 @@ export default {
 			this.suppliers = list.slice(0, kw ? 80 : 30)
 		},
 		selectSupplier(s) {
+			this.edited = true
 			this.form.supplierId = s._id
 			this.form.supplierName = s.name
 			this.items.forEach((it) => {
@@ -343,6 +363,7 @@ export default {
 			uni.navigateTo({ url: '/pages/archive/edit?type=supplier' })
 		},
 		addProductNav() {
+			if (this.syncing) return
 			if (this.supplierView || this.isStocked) return toast('当前采购单不能新增商品')
 			this.productKw = ''
 			this.loadProducts()
@@ -379,11 +400,12 @@ export default {
 			uni.navigateTo({ url: '/pages/product/detail?id=' + id })
 		},
 		selectProduct(p) {
+			this.edited = true
 			if (this.isStocked) return
 			const exists = this.items.find((it) => it.productId === p._id)
 			if (exists) { toast('该产品已添加'); return }
 			const unit = defaultUnit(p)
-			const item = db.insert(T.PURCHASE_ITEM, {
+			const data = {
 				purchaseOrderId: this.id,
 				productId: p._id, productName: p.name, spec: p.spec,
 				supplierId: this.form.supplierId, supplierName: this.form.supplierName,
@@ -392,14 +414,18 @@ export default {
 				unit,
 				unitFactor: unitFactor(p, unit),
 				qty: 1, purchasePrice: p.purchasePrice || 0, salePrice: this.defaultSalePrice(p), freightShare: 0
-			})
+			}
+			const item = this.id ? db.insert(T.PURCHASE_ITEM, data) : { ...data, _id: db.genId('tmp') }
 			this.items.push(item)
 			this.showProdPicker = false
 			this.allocateFreight(true)
 		},
-		saveItem(it) {
+		async saveItem(it) {
+			this.edited = true
 			if (this.isStocked) return
 			if (!this.validatePurchaseCost(it)) return
+			if (!this.id) return
+			try {
 			if (it._id) db.update(T.PURCHASE_ITEM, it._id, {
 				qty: Number(it.qty) || 0,
 				purchasePrice: Number(it.purchasePrice) || 0,
@@ -410,7 +436,13 @@ export default {
 			})
 			this.allocateFreight(true, false)
 			if (!this.preFlow) this.items.forEach((row) => this.syncProductPrice(row, true))
-			toast(this.preFlow ? '预采购明细已保存' : '已保存并重新分摊运费')
+			await saveRemoteChanges()
+			this.saveError = ''
+			toast('采购明细已保存到服务器')
+			} catch (error) {
+				this.saveError = '明细尚未同步，点击保存重试：' + error.message
+				toast('明细尚未保存到服务器')
+			}
 		},
 		allocateFreight(save = false, showTip = true) {
 			if (!this.items.length) return
@@ -442,13 +474,21 @@ export default {
 			})
 			if (!silent) uni.showToast({ title: '已同步采购价和成本价', icon: 'none' })
 		},
-		syncAllPrices() {
+		async syncAllPrices() {
+			try {
 			this.allocateFreight(true, false)
 			this.items.forEach((it) => this.syncProductPrice(it, true))
 			this.refreshItemsFromProducts()
+			await saveRemoteChanges()
+			this.saveError = ''
 			toast('已同步所有产品采购价和成本价', 'success')
+			} catch (error) {
+				this.saveError = '价格尚未同步，点击保存重试：' + error.message
+				toast('价格尚未保存到服务器')
+			}
 		},
 		removeItem(it, i) {
+			this.edited = true
 			if (this.supplierView || this.isStocked) return toast('已入库明细不能删除')
 			const requestIds = purchaseItemSourceRequestIds(it)
 			if (this.preFlow) {
@@ -471,7 +511,22 @@ export default {
 			}
 			this.allocateFreight(true, false)
 		},
-		saveOrder(showTip = true) {
+		async saveOrder() {
+			if (this.saving || this.syncing) return
+			this.saving = true
+			this.saveError = ''
+			try {
+				if (!this.persistOrderLocally()) return
+				await saveRemoteChanges()
+				toast('采购单已保存到服务器', 'success')
+			} catch (error) {
+				this.saveError = '保存尚未完成，请勿清理缓存，点击保存重试：' + error.message
+				toast('尚未保存到服务器，请重试')
+			} finally {
+				this.saving = false
+			}
+		},
+		persistOrderLocally() {
 			if (this.isStocked) return false
 			if (this.supplierView) {
 				toast('分享页只能修改数量和采购价')
@@ -481,7 +536,8 @@ export default {
 				toast('请选择供应商')
 				return false
 			}
-			if (this.items.length && !this.validateItemsForPurchase()) return false
+			if (!this.items.length) { toast('请至少添加一个采购商品'); return false }
+			if (!this.validateItemsForPurchase()) return false
 			if (this.id) {
 				db.update(T.PURCHASE_ORDER, this.id, {
 					supplierId: this.form.supplierId,
@@ -499,14 +555,27 @@ export default {
 				})
 				this.id = o._id
 			}
+			// Save the current form values and attach drafts to the newly created parent order.
+			this.items.forEach((item) => {
+				const record = {
+					...item, purchaseOrderId: this.id,
+					supplierId: this.form.supplierId, supplierName: this.form.supplierName,
+					qty: Number(item.qty) || 0, purchasePrice: Number(item.purchasePrice) || 0,
+					salePrice: this.itemSalePrice(item)
+				}
+				if (!item._id || String(item._id).startsWith('tmp_')) {
+					Object.assign(item, db.insert(T.PURCHASE_ITEM, { ...record, _id: undefined }))
+				} else {
+					db.update(T.PURCHASE_ITEM, item._id, record)
+				}
+			})
 			this.allocateFreight(true, false)
-			if (showTip) toast('已保存', 'success')
 			return true
 		},
-		approvePrePurchase() {
+		async approvePrePurchase() {
 			if (!this.id) return
 			if (!this.form.supplierId) return toast('请选择供应商')
-			if (!this.saveOrder(false)) return
+			if (!this.persistOrderLocally()) return
 			db.update(T.PURCHASE_ORDER, this.id, {
 				status: 'purchased',
 				approvedTime: Date.now(),
@@ -541,7 +610,13 @@ export default {
 					})
 				}
 			})
-			toast('预采购已审核', 'success')
+			try {
+				await saveRemoteChanges()
+				toast('预采购审核已同步服务器', 'success')
+			} catch (error) {
+				this.saveError = '审核尚未同步，点击保存重试：' + error.message
+				toast('审核尚未保存到服务器')
+			}
 		},
 		async stockInPurchase() {
 			if (!this.id || !this.isPurchasedPre) return
@@ -550,7 +625,7 @@ export default {
 			if (!this.items.length || this.items.some((it) => {
 				return !it.productId || !db.get(T.PRODUCT, it.productId) || Number(it.qty) <= 0
 			})) return toast('请检查采购明细的商品和数量')
-			if (!this.saveOrder(false)) return
+			if (!this.persistOrderLocally()) return
 			this.items = db.list(T.PURCHASE_ITEM, { purchaseOrderId: this.id })
 			this.allocateFreight(true, false)
 			this.items.forEach((it) => this.syncProductPrice(it, true))
@@ -621,6 +696,8 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.sync-notice { padding: 16rpx 24rpx; background: #eff6ff; color: #2563eb; font-size: 24rpx; }
+.sync-error { background: #fff7ed; color: #c2410c; }
 .item-row { padding: 20rpx 0; border-bottom: 1rpx solid #f0f1f4; }
 .item-row:last-child { border-bottom: none; }
 .product-link { color: #2563eb; }

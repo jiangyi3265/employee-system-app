@@ -1,24 +1,35 @@
 /**
  * 本地存储数据层 (data layer)
- * 基于 uni.storage 的通用 CRUD 封装。
- * 所有数据访问都通过此层，后期可平滑替换为 uniCloud / 自建后端。
+ * 本地缓存支持分块，业务修改通过同步队列写入服务端。
  */
+
+import { readStoredValue, writeStoredValue } from './storage.js'
 
 const PREFIX = 'sqms_' // sales quotation management system
 let writeListener = null
+const tableCache = new Map()
+
+function copy(value) {
+	return value == null ? value : JSON.parse(JSON.stringify(value))
+}
 
 function readTable(table) {
-	const raw = uni.getStorageSync(PREFIX + table)
+	if (tableCache.has(table)) return tableCache.get(table)
+	const raw = readStoredValue(PREFIX + table)
 	if (!raw) return []
 	try {
-		return typeof raw === 'string' ? JSON.parse(raw) : raw
+		const rows = typeof raw === 'string' ? JSON.parse(raw) : raw
+		if (!Array.isArray(rows)) throw new Error('invalid table')
+		tableCache.set(table, rows)
+		return rows
 	} catch (e) {
 		return []
 	}
 }
 
 function writeTable(table, list, silent = false, mutation = null) {
-	uni.setStorageSync(PREFIX + table, list)
+	writeStoredValue(PREFIX + table, list)
+	tableCache.set(table, copy(list))
 	if (!silent && typeof writeListener === 'function') writeListener(table, mutation)
 }
 
@@ -48,17 +59,17 @@ export const db = {
 				return (x > y ? 1 : -1) * (desc ? -1 : 1)
 			})
 		}
-		return list
+		return copy(list)
 	},
 
 	/** 按 id 获取单条 */
 	get(table, id) {
-		return readTable(table).find((r) => r._id === id) || null
+		return copy(readTable(table).find((r) => r._id === id) || null)
 	},
 
 	/** 自定义查找第一条 */
 	find(table, filter) {
-		return readTable(table).find((r) => match(r, filter)) || null
+		return copy(readTable(table).find((r) => match(r, filter)) || null)
 	},
 
 	/** 统计数量 */
@@ -68,7 +79,7 @@ export const db = {
 
 	/** 新增一条，自动生成 _id 与时间戳 */
 	insert(table, record) {
-		const list = readTable(table)
+		const list = readTable(table).slice()
 		const now = Date.now()
 		const item = {
 			_id: record._id || genId(table),
@@ -90,7 +101,7 @@ export const db = {
 
 	/** 按 id 更新（合并 patch） */
 	update(table, id, patch) {
-		const list = readTable(table)
+		const list = readTable(table).slice()
 		const idx = list.findIndex((r) => r._id === id)
 		if (idx === -1) return null
 		list[idx] = { ...list[idx], ...patch, _id: id, updateTime: Date.now() }

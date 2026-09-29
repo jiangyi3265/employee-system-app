@@ -1,13 +1,16 @@
 <script>
 	import { ensureSeed } from '@/store/seed.js'
-	import { bootstrapRemoteSync, flushDirtyTables } from '@/store/sync.js'
+	import { bootstrapRemoteSync, refreshRemoteSync, flushDirtyTables } from '@/store/sync.js'
 	export default {
 		onLaunch: async function() {
 			// 首次启动写入初始配置（价格/单位），不含演示账号
 			ensureSeed()
+			if (typeof uni.onNetworkStatusChange === 'function') {
+				uni.onNetworkStatusChange((state) => { if (state.isConnected) refreshRemoteSync() })
+			}
 			await bootstrapRemoteSync()
 		},
-		onShow: function() {},
+		onShow: function() { refreshRemoteSync() },
 		onHide: function() {
 			flushDirtyTables()
 		}
